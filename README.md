@@ -1,76 +1,67 @@
-# Calculadora preliminar ESVD - versión de demostración
+# Calculadora VEP para tráfico de vida silvestre
 
-Aplicación Streamlit en español para estimar, con rangos bajo/central/alto:
+Aplicación Streamlit en español para preparar una **valoración para efectos procesales (VEP)** mientras un expediente sigue abierto. Organiza hechos del caso, referencias históricas, transferencia de valores, incertidumbre y controles de doble conteo.
 
-- daño biológico monetizable (A);
-- pérdida de servicios ecosistémicos (B);
-- respuesta pública incremental (C);
-- rescate, rehabilitación y cuidado (D);
-- efectos conexos demostrados (E); y
-- reparación, restauración o equivalencia (R), presentada por separado.
+La aplicación calcula rangos bajo, central y alto para:
 
-La aplicación usa `data/Plantilla_Calculadora_ESVD_ES.xlsx` como base de parámetros. La versión incluida contiene datos completamente ficticios para probar la funcionalidad. También permite cargar una versión actualizada desde la interfaz.
+- A1: pérdida biofísica o poblacional;
+- A2: pérdida irreversible y equivalencia individual;
+- B: servicios ecosistémicos;
+- C: respuesta pública incremental;
+- D: rescate, rehabilitación y cuidado;
+- E: efectos conexos demostrados; y
+- R: restauración o equivalencia, mostrada por separado.
+
+La capa G registra gravedad ética y jurídica. No aplica un multiplicador monetario.
 
 ## Prueba rápida
 
-1. Pulse **Cargar caso completo de demostración** en el panel lateral.
-2. Revise las especies, servicios y costos que se agregaron automáticamente.
-3. Abra **5. Resultados** para ver los rangos en USD de todas las cuentas.
+1. Pulse **Cargar caso demostrativo de pericos**.
+2. Revise las seis pestañas en orden.
+3. Abra **6. Resultado VEP** para ver el rango y las advertencias.
 4. Pulse **Limpiar caso** para comenzar otra prueba.
 
-También puede construir un ejemplo paso a paso mediante los desplegables de las pestañas 2, 3 y 4. La selección autocompleta valores unitarios, evidencia, unidades, cantidades demostrativas y fuentes ficticias. Todos esos campos siguen siendo editables para probar escenarios.
+El caso reproduce el Ejemplo 1 de la metodología VEP: dos pericos vivos todavía en rehabilitación, 8 animal-días observados, 2 exámenes clínicos y una estancia estimada con 42 casos comparables. Los precios añadidos para operar la interfaz son ficticios; no constituyen tarifas, valores oficiales ni evidencia.
 
-El manual completo, con explicación de cada campo y del flujo de cálculo, se incluye en `docs/Manual_de_uso_Calculadora_ESVD.docx`.
+## Archivo de referencia
 
-## Ejecución local
+La aplicación lee `data/Plantilla_Calculadora_ESVD_ES.xlsx`:
 
-Requiere Python 3.11 o 3.12.
+- `ESPECIES_REFERENCIA` autocompleta A1 o A2;
+- `VALORES_ESVD` autocompleta B;
+- `COSTOS_REFERENCIA` autocompleta A1, A2, C, D, E o R.
+
+Cada parámetro puede conservar tipo de fuente, estado observado o estimado, número de casos, estadístico, periodo, evidencia y fuente. Los datos específicos del expediente deben sustituir las referencias cuando estén disponibles.
+
+Las columnas `INCLUIR_CASO_DEMO`, `CANTIDAD_CASO_DEMO` y `ORDEN_CASO_DEMO`, junto con las claves `demo_*` de `CONFIGURACION`, controlan el botón de prueba. Después de instalar esta versión, el caso demostrativo puede cambiarse sustituyendo únicamente el Excel y conservando el mismo nombre y ubicación.
+
+## Reglas del resultado
+
+- Evidencia A, B o C puede entrar al resultado principal si existe nexo causal y comparabilidad suficiente.
+- Evidencia D o E, o comparabilidad baja, queda como exploratoria.
+- Evidencia X o nexo causal negativo queda excluida.
+- R se muestra separada del subtotal de daños.
+- A2, B y R requieren una revisión expresa de posibles solapamientos.
+- UICN y CITES informan riesgo, recuperación y prioridad. No funcionan como multiplicadores.
+
+## Ejecución
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Publicación desde GitHub
-
-1. Cree un repositorio nuevo en GitHub.
-2. Suba **todo el contenido de esta carpeta**, incluida `.streamlit/config.toml` y `data/Plantilla_Calculadora_ESVD_ES.xlsx`.
-3. En Streamlit Community Cloud, seleccione **Create app**.
-4. Elija el repositorio, la rama y `app.py` como archivo de entrada.
-5. En configuración avanzada, seleccione una versión de Python compatible (se recomienda 3.12) y despliegue.
-
-Documentación oficial:
-
-- https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app
-- https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/file-organization
-- https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/app-dependencies
-
-## Tablas de referencia
-
-El Excel contiene tres tablas leídas por la aplicación:
-
-- `ESPECIES_REFERENCIA`: autocompleta el inventario y una línea monetaria ficticia de Cuenta A.
-- `VALORES_ESVD`: autocompleta la pérdida de servicios de Cuenta B.
-- `COSTOS_REFERENCIA`: autocompleta costos y acciones de las cuentas A, C, D, E y R.
-
-Mantenga los encabezados y nombres de hoja. En `VALORES_ESVD`, la aplicación recalcula:
-
-`valor normalizado = valor original × factor de moneda × factor de año de precios × factor de transferencia validado`
-
-Si una fila no tiene fuente, unidad, valor central, evidencia o comparabilidad, queda marcada como incompleta. Evidencia C/D o comparabilidad baja se presenta como exploratoria; evidencia X se excluye.
-
-Los registros `DEMO` no constituyen estudios, tarifas, precios de especies ni costos reales. Deben sustituirse por datos validados antes de usar la herramienta fuera de una demostración.
-
 ## Pruebas
-
-Desde la raíz del proyecto:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-## Alcance
+Los manuales están separados por herramienta:
 
-Es una herramienta preliminar de apoyo técnico. No sustituye peritaje ecológico o económico, revisión jurídica, validación de la transferencia de beneficios ni verificación de doble conteo.
+- `docs/Manual_VEP_Aplicacion_Durante_el_Proceso.docx`: uso de la aplicación mientras el expediente sigue abierto.
+- `docs/Manual_VTC_Excel_Despues_del_Hecho.docx`: uso de la plantilla Excel después del hecho.
+
+La valoración técnicamente completa posterior se trabaja en `docs/Plantilla_VTC_Valoracion_Despues_del_Hecho.xlsx`.

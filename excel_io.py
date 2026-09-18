@@ -11,7 +11,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from calculos import ESCENARIOS, normalizar_valores_esvd, numero, texto
+from calculos import ESCENARIOS, es_si, normalizar_valores_esvd, numero, texto
 
 
 HOJA_VALORES = "VALORES_ESVD"
@@ -59,6 +59,23 @@ def cargar_libro_referencia(
     return config, parametros, especies, costos
 
 
+def seleccionar_filas_demo(
+    filas: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
+    """Devuelve las filas marcadas para el caso demo y si la columna fue configurada.
+
+    La segunda salida permite distinguir entre un libro antiguo, que no tiene la
+    columna de control, y un libro nuevo que deliberadamente no selecciona filas
+    de una tabla (por ejemplo, un caso sin pérdida monetizada de Cuenta B).
+    """
+    configurado = any("INCLUIR_CASO_DEMO" in fila for fila in filas)
+    if not configurado:
+        return [], False
+    seleccionadas = [fila for fila in filas if es_si(fila.get("INCLUIR_CASO_DEMO"))]
+    seleccionadas.sort(key=lambda fila: numero(fila.get("ORDEN_CASO_DEMO"), 9999))
+    return seleccionadas, True
+
+
 def fila_servicio_desde_parametro(parametro: dict[str, Any]) -> dict[str, Any]:
     """Convierte una referencia ESVD en una fila editable del formulario."""
     return {
@@ -82,6 +99,11 @@ def fila_servicio_desde_parametro(parametro: dict[str, Any]) -> dict[str, Any]:
         "nexo_causal": "Sí",
         "beneficiarios": texto(parametro.get("BENEFICIARIOS")),
         "fuente": texto(parametro.get("FUENTE_URL_CITA")),
+        "tipo_fuente": texto(parametro.get("TIPO_FUENTE")) or "Transferencia de valor unitario",
+        "estado_dato": texto(parametro.get("ESTADO_DATO_PREDETERMINADO")) or "Estimado",
+        "n_referencia": texto(parametro.get("N_CASOS")),
+        "estadistico": texto(parametro.get("ESTADISTICO")),
+        "periodo_referencia": texto(parametro.get("PERIODO_REFERENCIA")),
         "grupo_doble_conteo": "",
     }
 
@@ -103,6 +125,11 @@ def fila_costo_desde_referencia(referencia: dict[str, Any]) -> dict[str, Any]:
         "evidencia": texto(referencia.get("NIVEL_EVIDENCIA")) or "B",
         "nexo_causal": texto(referencia.get("NEXO_CAUSAL")) or "Sí",
         "fuente": texto(referencia.get("FUENTE_DEMO")),
+        "tipo_fuente": texto(referencia.get("TIPO_FUENTE")) or "Base histórica comparable",
+        "estado_dato": texto(referencia.get("ESTADO_DATO_PREDETERMINADO")) or "Estimado",
+        "n_referencia": texto(referencia.get("N_CASOS")),
+        "estadistico": texto(referencia.get("ESTADISTICO")),
+        "periodo_referencia": texto(referencia.get("PERIODO_REFERENCIA")),
         "grupo_doble_conteo": texto(referencia.get("GRUPO_DOBLE_CONTEO")),
     }
 
@@ -110,7 +137,7 @@ def fila_costo_desde_referencia(referencia: dict[str, Any]) -> dict[str, Any]:
 def filas_especie_desde_referencia(
     referencia: dict[str, Any], cantidad: float,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Crea el registro biológico y su línea monetaria ficticia de Cuenta A."""
+    """Crea el registro biológico y su línea monetaria ficticia A1 o A2."""
     cantidad = max(0.0, numero(cantidad))
     registro = {
         "id_referencia": texto(referencia.get("ID_REFERENCIA")),
@@ -125,7 +152,7 @@ def filas_especie_desde_referencia(
     }
     costo = {
         "id_referencia": texto(referencia.get("ID_REFERENCIA")),
-        "cuenta": "A",
+        "cuenta": texto(referencia.get("CUENTA")) or "A1",
         "concepto": f"{texto(referencia.get('ESPECIE_GRUPO'))}: {texto(referencia.get('TIPO_AFECTACION'))}",
         "unidad": texto(referencia.get("UNIDAD")),
         "anio_desde_evento": 0,
@@ -138,6 +165,11 @@ def filas_especie_desde_referencia(
         "evidencia": texto(referencia.get("NIVEL_EVIDENCIA")) or "B",
         "nexo_causal": texto(referencia.get("NEXO_CAUSAL")) or "Sí",
         "fuente": texto(referencia.get("FUENTE_DEMO")),
+        "tipo_fuente": texto(referencia.get("TIPO_FUENTE")) or "Base histórica comparable",
+        "estado_dato": texto(referencia.get("ESTADO_DATO_PREDETERMINADO")) or "Estimado",
+        "n_referencia": texto(referencia.get("N_CASOS")),
+        "estadistico": texto(referencia.get("ESTADISTICO")),
+        "periodo_referencia": texto(referencia.get("PERIODO_REFERENCIA")),
         "grupo_doble_conteo": texto(referencia.get("GRUPO_DOBLE_CONTEO")),
     }
     return registro, costo
@@ -179,14 +211,15 @@ def crear_reporte_xlsx(
     moneda = texto(caso.get("moneda")) or "moneda del modelo"
     ws.append(["Cuenta", "Descripción", "Bajo", "Central", "Alto", "Tratamiento"])
     nombres = {
-        "A": "Daño biológico monetizable",
+        "A1": "Pérdida biofísica o poblacional",
+        "A2": "Pérdida irreversible y equivalencia individual",
         "B": "Pérdida de servicios ecosistémicos",
         "C": "Respuesta pública incremental",
         "D": "Rescate, rehabilitación y cuidado",
         "E": "Efectos conexos demostrados",
         "R": "Reparación/restauración/equivalencia",
     }
-    for cuenta in ("A", "B", "C", "D", "E", "R"):
+    for cuenta in ("A1", "A2", "B", "C", "D", "E", "R"):
         valores = resultado["principal_por_cuenta"][cuenta]
         tratamiento = "Separada del subtotal de daños" if cuenta == "R" else "Cuenta principal"
         ws.append([cuenta, nombres[cuenta], *(valores[e] for e in ESCENARIOS), tratamiento])
@@ -195,6 +228,8 @@ def crear_reporte_xlsx(
     else:
         ws.append(["SUBTOTAL", "No mostrado: falta autorización de agregación", "", "", "", "Revise doble conteo"])
     ws.append(["EXPLORATORIO", "Total de líneas exploratorias", *(resultado["total_exploratorio"][e] for e in ESCENARIOS), "No integrar al escenario central"])
+    ws.append(["OBSERVADO", "Componentes observados", *(resultado["por_estado_dato"]["Observado"][e] for e in ESCENARIOS), "Dato del expediente"])
+    ws.append(["ESTIMADO", "Componentes estimados o transferidos", *(resultado["por_estado_dato"]["Estimado"][e] for e in ESCENARIOS), "Base histórica, transferencia o proxy"])
     for row in ws.iter_rows(min_row=2, min_col=3, max_col=5):
         for cell in row:
             cell.number_format = '#,##0.00'
@@ -228,7 +263,7 @@ def crear_reporte_xlsx(
     for clave, valor in caso.items():
         meta.append([clave, _limpiar(valor)])
     meta.append(["fecha_exportacion", datetime.now().isoformat(timespec="seconds")])
-    meta.append(["nota", "Estimación preliminar. Requiere validación ecológica, económica y jurídica."])
+    meta.append(["nota", "Valoración para efectos procesales. Requiere revisión ecológica, económica y jurídica."])
     _ajustar_hoja(meta)
 
     salida = BytesIO()

@@ -1,4 +1,4 @@
-"""Motor de cálculo para la calculadora preliminar ESVD.
+"""Motor de cálculo para la valoración para efectos procesales (VEP).
 
 El módulo no depende de Streamlit. Esto permite probar la matemática de forma
 aislada y reutilizarla en otras interfaces.
@@ -6,14 +6,15 @@ aislada y reutilizarla en otras interfaces.
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter
 from math import ceil, isfinite
 from typing import Any, Iterable
 
 
 ESCENARIOS = ("bajo", "central", "alto")
-CUENTAS_DANOS = ("A", "B", "C", "D", "E")
-RANGO_EVIDENCIA = {"A": 1, "B": 2, "C": 3, "D": 4, "X": 5}
+CUENTAS_DANOS = ("A1", "A2", "B", "C", "D", "E")
+CUENTAS_VALIDAS = (*CUENTAS_DANOS, "R")
+RANGO_EVIDENCIA = {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "X": 6}
 
 
 def numero(valor: Any, predeterminado: float = 0.0) -> float:
@@ -40,17 +41,17 @@ def combinar_evidencia(*niveles: Any) -> str:
     """Devuelve el nivel más débil de la cadena probatoria."""
     limpios = [texto(n).upper() for n in niveles if texto(n)]
     if not limpios:
-        return "D"
-    return max(limpios, key=lambda n: RANGO_EVIDENCIA.get(n, 4))
+        return "E"
+    return max(limpios, key=lambda n: RANGO_EVIDENCIA.get(n, 5))
 
 
 def clasificar_linea(evidencia: Any, nexo_causal: Any, comparabilidad: Any = "") -> str:
     """Clasifica una línea como principal, exploratoria o excluida."""
-    nivel = texto(evidencia).upper() or "D"
+    nivel = texto(evidencia).upper() or "E"
     comp = texto(comparabilidad).lower()
     if nivel == "X" or not es_si(nexo_causal):
         return "excluida"
-    if nivel in {"C", "D"} or comp == "baja":
+    if nivel in {"D", "E"} or comp == "baja":
         return "exploratoria"
     return "principal"
 
@@ -85,7 +86,7 @@ def normalizar_valores_esvd(fila: dict[str, Any]) -> dict[str, Any]:
         estado = "EXCLUIDO"
     elif texto(fila.get("COMPARABILIDAD")).lower() == "baja" or texto(
         fila.get("NIVEL_EVIDENCIA")
-    ).upper() in {"C", "D"}:
+    ).upper() in {"D", "E"}:
         estado = "EXPLORATORIO"
     else:
         estado = "LISTO"
@@ -131,6 +132,11 @@ def calcular_servicio(fila: dict[str, Any], tasas: dict[str, float], horizonte: 
         "evidencia": evidencia,
         "nexo_causal": texto(fila.get("nexo_causal")),
         "fuente": texto(fila.get("fuente")),
+        "tipo_fuente": texto(fila.get("tipo_fuente")) or "Transferencia de valor",
+        "estado_dato": texto(fila.get("estado_dato")) or "Estimado",
+        "n_referencia": texto(fila.get("n_referencia")),
+        "estadistico": texto(fila.get("estadistico")),
+        "periodo_referencia": texto(fila.get("periodo_referencia")),
         "grupo_doble_conteo": texto(fila.get("grupo_doble_conteo")),
         "unidad": texto(fila.get("unidad_base")),
     }
@@ -160,6 +166,11 @@ def calcular_costo(fila: dict[str, Any], tasas: dict[str, float]) -> dict[str, A
         "evidencia": evidencia,
         "nexo_causal": texto(fila.get("nexo_causal")),
         "fuente": texto(fila.get("fuente")),
+        "tipo_fuente": texto(fila.get("tipo_fuente")) or "Dato del expediente",
+        "estado_dato": texto(fila.get("estado_dato")) or "Observado",
+        "n_referencia": texto(fila.get("n_referencia")),
+        "estadistico": texto(fila.get("estadistico")),
+        "periodo_referencia": texto(fila.get("periodo_referencia")),
         "grupo_doble_conteo": texto(fila.get("grupo_doble_conteo")),
         "unidad": texto(fila.get("unidad")),
     }
@@ -190,8 +201,8 @@ def calcular_modelo(
     detalle = [calcular_servicio(f, tasas, horizonte) for f in filas_servicio]
     detalle.extend(calcular_costo(f, tasas) for f in filas_costo)
 
-    principal = {cuenta: {e: 0.0 for e in ESCENARIOS} for cuenta in (*CUENTAS_DANOS, "R")}
-    exploratorio = {cuenta: {e: 0.0 for e in ESCENARIOS} for cuenta in (*CUENTAS_DANOS, "R")}
+    principal = {cuenta: {e: 0.0 for e in ESCENARIOS} for cuenta in CUENTAS_VALIDAS}
+    exploratorio = {cuenta: {e: 0.0 for e in ESCENARIOS} for cuenta in CUENTAS_VALIDAS}
     excluidas: list[dict[str, Any]] = []
     for fila in detalle:
         cuenta = fila["cuenta"] if fila["cuenta"] in principal else "E"
@@ -210,14 +221,39 @@ def calcular_modelo(
         for escenario in ESCENARIOS
     }
     total_exploratorio = {
-        escenario: sum(exploratorio[c][escenario] for c in (*CUENTAS_DANOS, "R"))
+        escenario: sum(exploratorio[c][escenario] for c in CUENTAS_VALIDAS)
         for escenario in ESCENARIOS
     }
+
+    por_estado_dato = {
+        estado: {escenario: 0.0 for escenario in ESCENARIOS}
+        for estado in ("Observado", "Estimado")
+    }
+    for fila in detalle:
+        if fila["categoria"] == "excluida":
+            continue
+        estado = "Observado" if texto(fila.get("estado_dato")).lower().startswith("observ") else "Estimado"
+        for escenario in ESCENARIOS:
+            por_estado_dato[estado][escenario] += numero(fila[escenario])
 
     advertencias: list[str] = []
     for fila in detalle:
         if not fila["fuente"]:
             advertencias.append(f"Falta fuente o expediente: {fila['concepto']}.")
+        if not texto(fila["estado_dato"]).lower().startswith("observ") and texto(
+            fila["tipo_fuente"]
+        ).lower().startswith("base histórica"):
+            faltantes = []
+            if not fila["n_referencia"]:
+                faltantes.append("n")
+            if not fila["estadistico"]:
+                faltantes.append("estadístico")
+            if not fila["periodo_referencia"]:
+                faltantes.append("periodo")
+            if faltantes:
+                advertencias.append(
+                    f"Complete el pedigrí histórico ({', '.join(faltantes)}): {fila['concepto']}."
+                )
         if not (numero(fila["bajo"]) <= numero(fila["central"]) <= numero(fila["alto"])):
             advertencias.append(f"El rango bajo-central-alto no es creciente: {fila['concepto']}.")
     grupos = Counter(
@@ -231,7 +267,9 @@ def calcular_modelo(
                 f"Revise posible doble conteo: el grupo '{grupo}' aparece en {cantidad} líneas activas."
             )
     if excluidas:
-        advertencias.append(f"Se excluyeron {len(excluidas)} líneas por falta de nexo causal o evidencia X.")
+        advertencias.append(
+            f"Se excluyeron {len(excluidas)} líneas por falta de nexo causal o evidencia no utilizable."
+        )
     if not detalle:
         advertencias.append("No hay líneas monetizables. Registre al menos un servicio o costo.")
 
@@ -242,6 +280,7 @@ def calcular_modelo(
         "exploratorio_por_cuenta": exploratorio,
         "subtotal_danos": subtotal_danos,
         "reparacion": principal["R"],
+        "por_estado_dato": por_estado_dato,
         "total_exploratorio": total_exploratorio,
         "detalle": detalle,
         "excluidas": excluidas,

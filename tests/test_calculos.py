@@ -33,6 +33,8 @@ class CalculosESVDTest(unittest.TestCase):
         self.assertAlmostEqual(salida["VALOR_CENTRAL_NORMALIZADO"], 220)
         self.assertEqual(salida["ESTADO_PARAMETRO"], "LISTO")
         fila["NIVEL_EVIDENCIA"] = "C"
+        self.assertEqual(normalizar_valores_esvd(fila)["ESTADO_PARAMETRO"], "LISTO")
+        fila["NIVEL_EVIDENCIA"] = "D"
         self.assertEqual(normalizar_valores_esvd(fila)["ESTADO_PARAMETRO"], "EXPLORATORIO")
 
     def test_recuperacion_lineal(self):
@@ -77,7 +79,8 @@ class CalculosESVDTest(unittest.TestCase):
 
     def test_regla_evidencia(self):
         self.assertEqual(clasificar_linea("A", "Sí"), "principal")
-        self.assertEqual(clasificar_linea("C", "Sí"), "exploratoria")
+        self.assertEqual(clasificar_linea("C", "Sí"), "principal")
+        self.assertEqual(clasificar_linea("D", "Sí"), "exploratoria")
         self.assertEqual(clasificar_linea("A", "No"), "excluida")
         self.assertEqual(clasificar_linea("X", "Sí"), "excluida")
 
