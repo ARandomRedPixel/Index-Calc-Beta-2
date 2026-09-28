@@ -6,11 +6,12 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from calculos import ESCENARIOS, calcular_modelo, numero, texto
+from calculos import ESCENARIOS, calcular_modelo, calcular_multas_7317, numero, texto
 from excel_io import (
     cargar_libro_referencia,
     crear_reporte_xlsx,
     fila_costo_desde_referencia,
+    fila_multa_desde_referencia,
     fila_receptor_desde_caso,
     fila_servicio_desde_parametro,
     filas_especie_desde_referencia,
@@ -133,6 +134,8 @@ def inicializar_estado():
         st.session_state.costos_df = pd.DataFrame([fila_costo_vacia()])
     if "variables_df" not in st.session_state:
         st.session_state.variables_df = pd.DataFrame()
+    if "multas_df" not in st.session_state:
+        st.session_state.multas_df = pd.DataFrame()
     st.session_state.setdefault("nombre_caso", "")
     st.session_state.setdefault("autoridad", "")
     st.session_state.setdefault("ubicacion", "")
@@ -158,6 +161,9 @@ def inicializar_estado():
     st.session_state.setdefault("totales_publicados", {})
     st.session_state.setdefault("moneda_modelo_ui", "")
     st.session_state.setdefault("anio_base_ui", 0)
+    st.session_state.setdefault("salario_base_7317", 0.0)
+    st.session_state.setdefault("tipo_cambio_multas", 1.0)
+    st.session_state.setdefault("revision_multas", False)
 
 
 def agregar_fila(clave: str, fila: dict, campos_contenido: tuple[str, ...]) -> None:
@@ -165,6 +171,17 @@ def agregar_fila(clave: str, fila: dict, campos_contenido: tuple[str, ...]) -> N
     primera_vacia = df.empty or (
         len(df) == 1 and not any(texto(df.iloc[0].get(c)) for c in campos_contenido)
     )
+
+
+def reiniciar_multas() -> None:
+    """Conserva el catálogo cargado y limpia las decisiones del caso anterior."""
+    if not st.session_state.multas_df.empty:
+        multas = st.session_state.multas_df.copy()
+        multas["aplica"] = False
+        multas["monto_firme_crc"] = 0.0
+        multas["observaciones"] = ""
+        st.session_state.multas_df = multas
+    st.session_state.revision_multas = False
     st.session_state[clave] = (
         pd.DataFrame([fila]) if primera_vacia else pd.concat([df, pd.DataFrame([fila])], ignore_index=True)
     )
@@ -220,6 +237,7 @@ def cargar_caso_demostrativo(config_excel, parametros, especies, costos) -> None
     st.session_state.permitir_agregacion_ui = texto(
         config_excel.get("demo_permitir_agregacion")
     ).lower() in {"sí", "si", "s", "true", "1", "yes"}
+    reiniciar_multas()
     st.session_state.demostracion_activa = True
     st.session_state.editor_version += 1
 
@@ -282,6 +300,7 @@ def cargar_caso_aplicado(
         "central": numero(caso.get("TOTAL_CENTRAL")),
         "alto": numero(caso.get("TOTAL_ALTO")),
     }
+    reiniciar_multas()
     st.session_state.moneda_modelo_ui = texto(caso.get("MONEDA")) or "CRC"
     st.session_state.anio_base_ui = int(numero(caso.get("ANIO_BASE"), 2026))
     st.session_state.editor_version += 1
@@ -320,6 +339,7 @@ def limpiar_caso() -> None:
     st.session_state.control_doble_caso = ""
     st.session_state.cambio_vdtc_caso = ""
     st.session_state.totales_publicados = {}
+    reiniciar_multas()
     st.session_state.editor_version += 1
 
 
@@ -346,16 +366,19 @@ with st.sidebar:
             casos_vdep,
             receptores_vdep,
             variables_vdep,
+            multas_referencia,
         ) = leer_referencia(contenido_libro)
         st.success(
             "Libro válido: "
             f"{len(especies_referencia)} especie(s), {len(parametros)} servicio(s) y "
-            f"{len(costos_referencia)} componente(s); {len(casos_vdep)} caso(s) aplicado(s)."
+            f"{len(costos_referencia)} componente(s); {len(casos_vdep)} caso(s) aplicado(s) y "
+            f"{len(multas_referencia)} multa(s) catalogada(s)."
         )
     except Exception as exc:
         st.error(f"No se pudo leer el libro: {exc}")
         config_excel, parametros, especies_referencia, costos_referencia = {}, [], [], []
         casos_vdep, receptores_vdep, variables_vdep = [], [], []
+        multas_referencia = []
     modo_demostracion = bool(casos_vdep) or bool(texto(config_excel.get("demo_id_caso"))) or any(
         "INCLUIR_CASO_DEMO" in fila
         for fila in [*parametros, *especies_referencia, *costos_referencia]
@@ -410,16 +433,31 @@ if not texto(st.session_state.moneda_modelo_ui):
     st.session_state.moneda_modelo_ui = texto(config_excel.get("moneda_modelo")) or "CRC"
 if not st.session_state.anio_base_ui:
     st.session_state.anio_base_ui = int(numero(config_excel.get("anio_base"), 2026))
+if not st.session_state.salario_base_7317:
+    st.session_state.salario_base_7317 = numero(config_excel.get("salario_base_ley_7337"), 462200)
+ids_multas_referencia = {texto(fila.get("ID_MULTA")) for fila in multas_referencia}
+ids_multas_estado = (
+    set(st.session_state.multas_df.get("id_multa", pd.Series(dtype=str)).astype(str))
+    if not st.session_state.multas_df.empty
+    else set()
+)
+if ids_multas_referencia and ids_multas_referencia != ids_multas_estado:
+    st.session_state.multas_df = pd.DataFrame(
+        [fila_multa_desde_referencia(fila) for fila in multas_referencia]
+    )
+elif not ids_multas_referencia and ids_multas_estado:
+    st.session_state.multas_df = pd.DataFrame()
 
 
-tab_caso, tab_vida, tab_servicios, tab_costos, tab_gravedad, tab_resultados = st.tabs(
+tab_caso, tab_vida, tab_servicios, tab_costos, tab_gravedad, tab_multas, tab_resultados = st.tabs(
     [
         "1. Expediente",
         "2. Hecho y receptor",
         "3. Servicios",
         "4. Costos y reparación",
         "5. Gravedad y revisión",
-        "6. Resultado VDEP",
+        "6. Multas Ley 7317",
+        "7. Resultado VDEP",
     ]
 )
 
@@ -763,6 +801,102 @@ with tab_gravedad:
     if permitir_agregacion and not (revision_causal and revision_incertidumbre and revision_doble):
         st.warning("El subtotal está autorizado, pero todavía falta una o más confirmaciones de revisión.")
 
+with tab_multas:
+    st.subheader("Multas aplicables de la Ley N.° 7317")
+    st.info(
+        "Marque únicamente las conductas cuya aplicación haya sido confirmada jurídicamente. "
+        "La multa se calcula con el salario base, se mantiene separada del daño ambiental y se suma solo al total final."
+    )
+    moneda_normalizada = texto(moneda_modelo).strip().upper()
+    moneda_es_crc = moneda_normalizada in {"CRC", "COLÓN", "COLONES", "COLONES COSTARRICENSES", "₡"}
+    moneda_anterior = st.session_state.get("moneda_multas_anterior")
+    if moneda_anterior != moneda_normalizada:
+        st.session_state.tipo_cambio_multas = 1.0 if moneda_es_crc else 0.0
+        st.session_state.moneda_multas_anterior = moneda_normalizada
+    p1, p2, p3 = st.columns(3)
+    salario_base_multas = p1.number_input(
+        "Salario base Ley 7337 (CRC)",
+        min_value=0.0,
+        step=100.0,
+        format="%.2f",
+        key="salario_base_7317",
+        help="Revise este dato cuando el Poder Judicial publique el salario base de un nuevo año.",
+    )
+    p2.metric("Año del salario base", int(numero(config_excel.get("anio_salario_base"), 2026)))
+    if moneda_es_crc:
+        tipo_cambio_multas = 1.0
+        p3.metric("Conversión", "1 CRC = 1 CRC")
+    else:
+        tipo_cambio_multas = p3.number_input(
+            f"CRC por 1 {moneda_modelo}",
+            min_value=0.0,
+            step=1.0,
+            format="%.4f",
+            key="tipo_cambio_multas",
+            help=f"Ejemplo: si 1 {moneda_modelo} equivale a 500 CRC, escriba 500.",
+        )
+
+    if st.session_state.multas_df.empty:
+        st.warning(
+            "El Excel de referencia no contiene la hoja MULTAS_7317. Reemplace el archivo por la versión actualizada."
+        )
+    else:
+        st.caption(
+            "Casilla marcada = posible multa aplicable. “SB aplicados” define el escenario central; "
+            "si ya existe un monto firme, escríbalo en CRC y ese monto sustituirá el central."
+        )
+        st.session_state.multas_df = st.data_editor(
+            st.session_state.multas_df,
+            num_rows="fixed",
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "aplica": st.column_config.CheckboxColumn("Aplicar", default=False),
+                "id_multa": st.column_config.TextColumn("ID", disabled=True),
+                "articulo": st.column_config.TextColumn("Artículo", disabled=True),
+                "tipo": st.column_config.TextColumn("Tipo", disabled=True),
+                "conducta": st.column_config.TextColumn("Conducta", disabled=True, width="large"),
+                "min_sb": st.column_config.NumberColumn("Mín. SB", disabled=True, format="%.2f"),
+                "sb_aplicados": st.column_config.NumberColumn("SB aplicados", min_value=0.0, format="%.3f"),
+                "max_sb": st.column_config.NumberColumn("Máx. SB", disabled=True, format="%.2f"),
+                "monto_firme_crc": st.column_config.NumberColumn("Monto firme CRC", min_value=0.0, format="%.2f"),
+                "otras_consecuencias": st.column_config.TextColumn("Otras consecuencias", disabled=True, width="large"),
+                "fuente": st.column_config.TextColumn("Fuente oficial", disabled=True, width="large"),
+                "observaciones": st.column_config.TextColumn("Observaciones del caso", width="large"),
+            },
+            key=f"editor_multas_{st.session_state.editor_version}",
+        )
+
+    multas_resultado = calcular_multas_7317(
+        registros(st.session_state.multas_df),
+        salario_base_multas,
+        tipo_cambio_multas,
+    )
+    seleccionadas = len(multas_resultado["detalle"])
+    st.write(f"Multas seleccionadas: **{seleccionadas}**")
+    r1, r2, r3 = st.columns(3)
+    r1.metric("Rango bajo en CRC", moneda(multas_resultado["total_crc"]["bajo"], "CRC"))
+    r2.metric("Central o firme en CRC", moneda(multas_resultado["total_crc"]["central"], "CRC"))
+    r3.metric("Rango alto en CRC", moneda(multas_resultado["total_crc"]["alto"], "CRC"))
+    if multas_resultado["total_moneda"] is not None and not moneda_es_crc:
+        st.caption(
+            "Convertido a la moneda del resultado: "
+            f"{moneda(multas_resultado['total_moneda']['bajo'], moneda_modelo)} / "
+            f"{moneda(multas_resultado['total_moneda']['central'], moneda_modelo)} / "
+            f"{moneda(multas_resultado['total_moneda']['alto'], moneda_modelo)}."
+        )
+    if multas_resultado["advertencias"]:
+        st.warning("\n".join(f"• {mensaje}" for mensaje in multas_resultado["advertencias"]))
+    revision_multas = st.checkbox(
+        "La selección y la cuantía de las multas fueron revisadas jurídicamente.",
+        key="revision_multas",
+        disabled=seleccionadas == 0,
+    )
+    st.caption(
+        "Esta pestaña es una ayuda de registro y cálculo. Si marca varias filas, la aplicación las suma aritméticamente; "
+        "la revisión jurídica debe confirmar si realmente son acumulables, si la multa es alternativa a prisión y qué consecuencias no monetarias proceden."
+    )
+
 config_calculo = {
     "tasa_descuento_baja": tasa_baja,
     "tasa_descuento_central": tasa_central,
@@ -789,8 +923,11 @@ caso = {
     "revision_causal": revision_causal,
     "revision_incertidumbre": revision_incertidumbre,
     "revision_doble_conteo": revision_doble,
+    "revision_multas_ley_7317": revision_multas,
     "moneda": moneda_modelo,
     "anio_base": anio_base,
+    "salario_base_ley_7337_crc": salario_base_multas,
+    "crc_por_unidad_moneda": tipo_cambio_multas,
     "permitir_agregacion": permitir_agregacion,
     "caso_aplicado_id": st.session_state.caso_aplicado_id,
     "fuente_caso_aplicado": st.session_state.caso_aplicado_fuente,
@@ -818,12 +955,15 @@ with tab_resultados:
     }
     faltantes_minimos = [nombre for nombre, valor in campos_minimos.items() if not texto(valor)]
     revisiones_pendientes = not (revision_causal and revision_incertidumbre and revision_doble)
-    if faltantes_minimos or revisiones_pendientes:
+    multas_pendientes = bool(multas_resultado["detalle"]) and not revision_multas
+    if faltantes_minimos or revisiones_pendientes or multas_pendientes:
         partes = []
         if faltantes_minimos:
             partes.append("Faltan: " + ", ".join(faltantes_minimos))
         if revisiones_pendientes:
             partes.append("Faltan confirmaciones de revisión en la pestaña 5")
+        if multas_pendientes:
+            partes.append("Falta la revisión jurídica de las multas en la pestaña 6")
         st.warning("Resultado incompleto para revisión procesal. " + ". ".join(partes) + ".")
     else:
         st.success("El registro mínimo VDEP está completo. Revise las advertencias antes de usar el resultado.")
@@ -852,6 +992,36 @@ with tab_resultados:
         )
     else:
         st.info("El subtotal combinado no se muestra porque la agregación no está autorizada. Revise primero los grupos de doble conteo.")
+
+    st.markdown("**Multas y total final**")
+    multas_moneda = multas_resultado.get("total_moneda")
+    if multas_moneda is not None:
+        f1, f2, f3 = st.columns(3)
+        f1.metric("Multas Ley 7317 - Bajo", moneda(multas_moneda["bajo"], moneda_modelo))
+        f2.metric("Multas Ley 7317 - Central", moneda(multas_moneda["central"], moneda_modelo))
+        f3.metric("Multas Ley 7317 - Alto", moneda(multas_moneda["alto"], moneda_modelo))
+        if permitir_agregacion:
+            total_final = {
+                escenario: resultado["total_compatible"][escenario] + multas_moneda[escenario]
+                for escenario in ESCENARIOS
+            }
+            t1, t2, t3 = st.columns(3)
+            t1.metric("TOTAL FINAL - Bajo", moneda(total_final["bajo"], moneda_modelo))
+            t2.metric("TOTAL FINAL - Central", moneda(total_final["central"], moneda_modelo))
+            t3.metric("TOTAL FINAL - Alto", moneda(total_final["alto"], moneda_modelo))
+        else:
+            st.caption("Las multas se muestran, pero el total final no puede calcularse hasta autorizar la agregación VDEP.")
+    else:
+        st.warning(
+            "Las multas se muestran en CRC, pero no se suman al total final porque falta el tipo de cambio a la moneda del resultado."
+        )
+        f1, f2, f3 = st.columns(3)
+        f1.metric("Multas - Bajo", moneda(multas_resultado["total_crc"]["bajo"], "CRC"))
+        f2.metric("Multas - Central", moneda(multas_resultado["total_crc"]["central"], "CRC"))
+        f3.metric("Multas - Alto", moneda(multas_resultado["total_crc"]["alto"], "CRC"))
+    st.caption(
+        "Las multas son una consecuencia jurídica separada. No modifican el valor del daño ambiental; se agregan únicamente en esta línea final."
+    )
     st.dataframe(
         resumen_df,
         use_container_width=True,
@@ -909,8 +1079,9 @@ with tab_resultados:
         if gravedad_notas:
             st.write(gravedad_notas)
 
-    if resultado["advertencias"]:
-        st.warning("\n".join(f"• {a}" for a in resultado["advertencias"]))
+    advertencias_resultado = [*resultado["advertencias"], *multas_resultado["advertencias"]]
+    if advertencias_resultado:
+        st.warning("\n".join(f"• {a}" for a in sorted(set(advertencias_resultado))))
     else:
         st.success("No se detectaron advertencias automáticas. Aun así, realice revisión técnica y jurídica.")
 
@@ -927,6 +1098,7 @@ with tab_resultados:
         registros(st.session_state.servicios_df),
         registros(st.session_state.costos_df),
         registros(st.session_state.variables_df),
+        multas_resultado,
     )
     paquete_json = json.dumps(
         {
@@ -935,6 +1107,7 @@ with tab_resultados:
             "variables_biofisicas": registros(st.session_state.variables_df),
             "servicios": registros(st.session_state.servicios_df),
             "costos": registros(st.session_state.costos_df),
+            "multas_ley_7317": multas_resultado,
             "resultado": resultado,
         },
         ensure_ascii=False,

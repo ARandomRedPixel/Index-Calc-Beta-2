@@ -3,6 +3,7 @@ import unittest
 from calculos import (
     calcular_costo,
     calcular_modelo,
+    calcular_multas_7317,
     calcular_servicio,
     clasificar_linea,
     fracciones_perdida,
@@ -97,6 +98,37 @@ class CalculosESVDTest(unittest.TestCase):
         })
         self.assertEqual(resultado["subtotal_danos"]["central"], 0)
         self.assertEqual(resultado["reparacion"]["central"], 200)
+
+    def test_multas_ley_7317_separadas_y_convertibles(self):
+        salida = calcular_multas_7317(
+            [
+                {
+                    "aplica": True,
+                    "id_multa": "L7317-090",
+                    "articulo": "90",
+                    "conducta": "Prueba",
+                    "min_sb": 1,
+                    "sb_aplicados": 2,
+                    "max_sb": 3,
+                },
+                {
+                    "aplica": False,
+                    "articulo": "91(a)",
+                    "min_sb": 1,
+                    "sb_aplicados": 5.5,
+                    "max_sb": 10,
+                },
+            ],
+            462200,
+            500,
+        )
+        self.assertEqual(salida["total_crc"], {
+            "bajo": 462200,
+            "central": 924400,
+            "alto": 1386600,
+        })
+        self.assertAlmostEqual(salida["total_moneda"]["central"], 1848.8)
+        self.assertEqual(len(salida["detalle"]), 1)
 
 
 if __name__ == "__main__":

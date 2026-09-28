@@ -14,13 +14,16 @@ La aplicación calcula rangos bajo, central y alto para:
 
 La capa G registra gravedad ética y jurídica. No aplica un multiplicador monetario.
 
+La pestaña **Multas Ley 7317** permite marcar las disposiciones aplicables, calcular su rango con el salario base vigente y sumarlo, como línea jurídica separada, al total final.
+
 ## Prueba rápida
 
 1. Seleccione uno de los nueve casos del Producto 2.1.2.
 2. Pulse **Cargar ejemplo aplicado**.
-3. Revise las seis pestañas en orden.
-4. Abra **6. Resultado VDEP** para ver el rango, las notas y la comprobación con el anexo.
-5. Pulse **Limpiar caso** para comenzar otra prueba.
+3. Revise las siete pestañas en orden.
+4. Abra **6. Multas Ley 7317** y marque solo las conductas confirmadas por la revisión jurídica.
+5. Abra **7. Resultado VDEP** para ver el daño, las multas y el total final.
+6. Pulse **Limpiar caso** para comenzar otra prueba.
 
 Los nueve casos reproducen los datos del anexo aplicado: pericos, primate no liberable, lapa reproductora, huevos de tortuga, coral, orquídeas, árbol-nido y polluelos, paquete postal y manglar. El propio documento indica que todos los hechos, montos y parámetros son ficticios; no constituyen tarifas ni valores oficiales.
 
@@ -34,6 +37,7 @@ La aplicación lee `data/Plantilla_Calculadora_ESVD_ES.xlsx`:
 - `CASOS_VDEP` define el expediente y el rango publicado de cada ejemplo;
 - `RECEPTORES_VDEP` carga el inventario físico; y
 - `VARIABLES_VDEP` conserva indicadores biofísicos y no monetarios.
+- `MULTAS_7317` contiene el catálogo de rangos en salarios base que alimenta las casillas de selección.
 
 Cada parámetro puede conservar tipo de fuente, estado observado o estimado, número de casos, estadístico, periodo, evidencia y fuente. Los datos específicos del expediente deben sustituir las referencias cuando estén disponibles.
 
@@ -47,6 +51,7 @@ Después de instalar esta versión, los ejemplos y catálogos pueden actualizars
 - R se muestra separada del subtotal de daños y solo se incorpora al total compatible después de la revisión.
 - A2, B y R requieren una revisión expresa de posibles solapamientos.
 - UICN y CITES informan riesgo, recuperación y prioridad. No funcionan como multiplicadores.
+- Las multas no multiplican el daño: se calculan por separado y solo se añaden al cierre monetario.
 
 ## Ejecución
 

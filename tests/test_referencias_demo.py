@@ -4,7 +4,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from calculos import calcular_modelo
+from calculos import calcular_modelo, calcular_multas_7317
 from excel_io import (
     cargar_libro_referencia,
     crear_reporte_xlsx,
@@ -25,6 +25,7 @@ class ReferenciasVdepTest(unittest.TestCase):
             cls.casos,
             cls.receptores,
             cls.variables,
+            cls.multas,
         ) = cargar_libro_referencia(libro)
 
     def calcular_caso(self, id_caso):
@@ -43,6 +44,8 @@ class ReferenciasVdepTest(unittest.TestCase):
         self.assertEqual(len(self.variables), 49)
         self.assertEqual(len(self.costos), 32)
         self.assertEqual(len(self.parametros), 4)
+        self.assertEqual(len(self.multas), 35)
+        self.assertEqual(self.config["salario_base_ley_7337"], 462200)
         self.assertTrue(all(str(c["ID_CASO"]).startswith("VDEP-EJ") for c in self.casos))
 
     def test_los_nueve_totales_reproducen_el_anexo(self):
@@ -86,6 +89,18 @@ class ReferenciasVdepTest(unittest.TestCase):
         self.assertEqual(receptores[1]["cantidad"], 0.6)
         resultado, costos = self.calcular_caso("VDEP-EJ09")
         variables = [v for v in self.variables if v["ID_CASO"] == "VDEP-EJ09"]
+        multas = calcular_multas_7317(
+            [{
+                "aplica": True,
+                "articulo": "90",
+                "conducta": "Prueba de exportación",
+                "min_sb": 1,
+                "sb_aplicados": 2,
+                "max_sb": 3,
+            }],
+            462200,
+            1,
+        )
         reporte = crear_reporte_xlsx(
             {"moneda": "CRC", "permitir_agregacion": True, "tipo_valoracion": "VDEP"},
             resultado,
@@ -93,12 +108,16 @@ class ReferenciasVdepTest(unittest.TestCase):
             [],
             costos,
             variables,
+            multas,
         )
         libro = load_workbook(BytesIO(reporte), read_only=True, data_only=False)
         self.assertIn("RESUMEN", libro.sheetnames)
         self.assertIn("VARIABLES_BIOFISICAS", libro.sheetnames)
+        self.assertIn("MULTAS_LEY_7317", libro.sheetnames)
         valores_columna_a = [libro["RESUMEN"].cell(r, 1).value for r in range(1, libro["RESUMEN"].max_row + 1)]
         self.assertIn("TOTAL VDEP", valores_columna_a)
+        self.assertIn("MULTAS LEY 7317", valores_columna_a)
+        self.assertIn("TOTAL FINAL", valores_columna_a)
         libro.close()
 
 

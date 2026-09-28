@@ -21,6 +21,7 @@ HOJA_COSTOS = "COSTOS_REFERENCIA"
 HOJA_CASOS = "CASOS_VDEP"
 HOJA_RECEPTORES = "RECEPTORES_VDEP"
 HOJA_VARIABLES = "VARIABLES_VDEP"
+HOJA_MULTAS = "MULTAS_7317"
 
 
 def _abrir(origen: str | Path | bytes | BinaryIO):
@@ -51,6 +52,7 @@ def cargar_libro_referencia(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     libro = _abrir(origen)
     if HOJA_CONFIG not in libro.sheetnames or HOJA_VALORES not in libro.sheetnames:
@@ -69,8 +71,9 @@ def cargar_libro_referencia(
     casos = _leer_tabla(libro[HOJA_CASOS], 5, "ID_CASO") if HOJA_CASOS in libro.sheetnames else []
     receptores = _leer_tabla(libro[HOJA_RECEPTORES], 5, "ID_CASO") if HOJA_RECEPTORES in libro.sheetnames else []
     variables = _leer_tabla(libro[HOJA_VARIABLES], 5, "ID_CASO") if HOJA_VARIABLES in libro.sheetnames else []
+    multas = _leer_tabla(libro[HOJA_MULTAS], 5, "ID_MULTA") if HOJA_MULTAS in libro.sheetnames else []
     libro.close()
-    return config, parametros, especies, costos, casos, receptores, variables
+    return config, parametros, especies, costos, casos, receptores, variables, multas
 
 
 def seleccionar_filas_demo(
@@ -165,6 +168,27 @@ def fila_receptor_desde_caso(referencia: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def fila_multa_desde_referencia(referencia: dict[str, Any]) -> dict[str, Any]:
+    """Convierte una disposición de la Ley 7317 en una fila seleccionable."""
+    minimo = max(0.0, numero(referencia.get("MÍN_SB")))
+    maximo = max(minimo, numero(referencia.get("MÁX_SB"), minimo))
+    central = numero(referencia.get("CENTRAL_SB_SUGERIDO"), (minimo + maximo) / 2)
+    return {
+        "aplica": False,
+        "id_multa": texto(referencia.get("ID_MULTA")),
+        "articulo": texto(referencia.get("ARTÍCULO")),
+        "tipo": texto(referencia.get("TIPO")),
+        "conducta": texto(referencia.get("CONDUCTA")),
+        "min_sb": minimo,
+        "sb_aplicados": central,
+        "max_sb": maximo,
+        "monto_firme_crc": 0.0,
+        "otras_consecuencias": texto(referencia.get("OTRAS_CONSECUENCIAS")),
+        "fuente": texto(referencia.get("FUENTE_OFICIAL")),
+        "observaciones": "",
+    }
+
+
 def filas_especie_desde_referencia(
     referencia: dict[str, Any], cantidad: float,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -238,6 +262,7 @@ def crear_reporte_xlsx(
     servicios: list[dict[str, Any]],
     costos: list[dict[str, Any]],
     variables_biofisicas: list[dict[str, Any]] | None = None,
+    multas_7317: dict[str, Any] | None = None,
 ) -> bytes:
     wb = Workbook()
     ws = wb.active
@@ -257,11 +282,31 @@ def crear_reporte_xlsx(
         valores = resultado["principal_por_cuenta"][cuenta]
         tratamiento = "Separada del subtotal de daños" if cuenta == "R" else "Cuenta principal"
         ws.append([cuenta, nombres[cuenta], *(valores[e] for e in ESCENARIOS), tratamiento])
+    multas_7317 = multas_7317 or {
+        "total_crc": {e: 0.0 for e in ESCENARIOS},
+        "total_moneda": {e: 0.0 for e in ESCENARIOS},
+        "conversion_valida": True,
+        "detalle": [],
+        "advertencias": [],
+    }
     if caso.get("permitir_agregacion"):
         ws.append(["SUBTOTAL", f"Subtotal de daños ({moneda})", *(resultado["subtotal_danos"][e] for e in ESCENARIOS), "Agregación autorizada"])
         ws.append(["TOTAL VDEP", f"Total compatible VDEP, incluido R ({moneda})", *(resultado["total_compatible"][e] for e in ESCENARIOS), "Mostrar solo tras revisar compatibilidad"])
     else:
         ws.append(["SUBTOTAL", "No mostrado: falta autorización de agregación", "", "", "", "Revise doble conteo"])
+    if multas_7317.get("conversion_valida"):
+        total_multas = multas_7317.get("total_moneda") or {e: 0.0 for e in ESCENARIOS}
+        ws.append(["MULTAS LEY 7317", f"Pena monetaria separada ({moneda})", *(numero(total_multas.get(e)) for e in ESCENARIOS), "Selección sujeta a revisión jurídica"])
+        if caso.get("permitir_agregacion"):
+            ws.append([
+                "TOTAL FINAL",
+                f"Total compatible VDEP + multas ({moneda})",
+                *(resultado["total_compatible"][e] + numero(total_multas.get(e)) for e in ESCENARIOS),
+                "La multa no se usa como multiplicador del daño",
+            ])
+    else:
+        total_crc = multas_7317.get("total_crc") or {e: 0.0 for e in ESCENARIOS}
+        ws.append(["MULTAS LEY 7317", "Totales en CRC; falta tipo de cambio", *(numero(total_crc.get(e)) for e in ESCENARIOS), "No sumadas al total VDEP"])
     ws.append(["EXPLORATORIO", "Total de líneas exploratorias", *(resultado["total_exploratorio"][e] for e in ESCENARIOS), "No integrar al escenario central"])
     ws.append(["OBSERVADO", "Componentes observados", *(resultado["por_estado_dato"]["Observado"][e] for e in ESCENARIOS), "Dato del expediente"])
     ws.append(["ESTIMADO", "Componentes estimados o transferidos", *(resultado["por_estado_dato"]["Estimado"][e] for e in ESCENARIOS), "Base histórica, transferencia o proxy"])
@@ -276,6 +321,7 @@ def crear_reporte_xlsx(
         ("SERVICIOS_ENTRADA", servicios),
         ("COSTOS_ENTRADA", costos),
         ("VARIABLES_BIOFISICAS", variables_biofisicas or []),
+        ("MULTAS_LEY_7317", multas_7317.get("detalle") or []),
     ]
     for nombre, filas in hojas:
         tab = wb.create_sheet(nombre)
@@ -290,7 +336,8 @@ def crear_reporte_xlsx(
 
     adv = wb.create_sheet("ADVERTENCIAS")
     adv.append(["Advertencia"])
-    for mensaje in resultado["advertencias"] or ["Sin advertencias automáticas."]:
+    advertencias = [*resultado["advertencias"], *multas_7317.get("advertencias", [])]
+    for mensaje in advertencias or ["Sin advertencias automáticas."]:
         adv.append([mensaje])
     _ajustar_hoja(adv)
 
@@ -299,6 +346,8 @@ def crear_reporte_xlsx(
     for clave, valor in caso.items():
         meta.append([clave, _limpiar(valor)])
     meta.append(["fecha_exportacion", datetime.now().isoformat(timespec="seconds")])
+    meta.append(["salario_base_ley_7337_crc", multas_7317.get("salario_base_crc", "")])
+    meta.append(["crc_por_unidad_moneda", multas_7317.get("crc_por_unidad_moneda", "")])
     meta.append(["nota", "VDEP para uso durante un expediente abierto. Requiere revisión ecológica, económica y jurídica."])
     _ajustar_hoja(meta)
 

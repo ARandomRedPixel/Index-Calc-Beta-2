@@ -181,6 +181,98 @@ def calcular_costo(fila: dict[str, Any], tasas: dict[str, float]) -> dict[str, A
     return resultado
 
 
+def calcular_multas_7317(
+    multas: Iterable[dict[str, Any]],
+    salario_base_crc: Any,
+    crc_por_unidad_moneda: Any = 1.0,
+) -> dict[str, Any]:
+    """Calcula las multas seleccionadas sin tratarlas como daño ambiental.
+
+    Los límites se expresan en salarios base. El resultado conserva el total en
+    colones y, cuando existe un tipo de cambio válido, también lo convierte a la
+    moneda usada por el resto de la valoración.
+    """
+    salario = max(0.0, numero(salario_base_crc))
+    tipo_cambio = numero(crc_por_unidad_moneda)
+    conversion_valida = tipo_cambio > 0
+    detalle: list[dict[str, Any]] = []
+    advertencias: list[str] = []
+    total_crc = {escenario: 0.0 for escenario in ESCENARIOS}
+
+    for fila in multas:
+        valor_aplica = fila.get("aplica")
+        aplica = valor_aplica if isinstance(valor_aplica, bool) else es_si(valor_aplica)
+        if not aplica:
+            continue
+        minimo = max(0.0, numero(fila.get("min_sb")))
+        maximo = max(minimo, numero(fila.get("max_sb"), minimo))
+        central = numero(fila.get("sb_aplicados"), (minimo + maximo) / 2)
+        monto_firme = max(0.0, numero(fila.get("monto_firme_crc")))
+        articulo = texto(fila.get("articulo"))
+        concepto = texto(fila.get("conducta")) or f"Artículo {articulo}"
+        if not minimo and not maximo:
+            advertencias.append(f"Falta el rango de salarios base para el artículo {articulo}.")
+        if central < minimo or central > maximo:
+            advertencias.append(
+                f"Los salarios base aplicados al artículo {articulo} están fuera del rango legal "
+                f"({minimo:g}–{maximo:g})."
+            )
+        valores = {
+            "bajo": minimo * salario,
+            "central": monto_firme if monto_firme > 0 else central * salario,
+            "alto": maximo * salario,
+        }
+        if not (valores["bajo"] <= valores["central"] <= valores["alto"]):
+            advertencias.append(
+                f"El monto central o firme del artículo {articulo} no queda dentro del rango mínimo–máximo."
+            )
+        for escenario in ESCENARIOS:
+            total_crc[escenario] += valores[escenario]
+        detalle.append(
+            {
+                "id_multa": texto(fila.get("id_multa")),
+                "articulo": articulo,
+                "tipo": texto(fila.get("tipo")),
+                "conducta": concepto,
+                "min_sb": minimo,
+                "sb_aplicados": central,
+                "max_sb": maximo,
+                "monto_firme_crc": monto_firme,
+                "bajo_crc": valores["bajo"],
+                "central_crc": valores["central"],
+                "alto_crc": valores["alto"],
+                "otras_consecuencias": texto(fila.get("otras_consecuencias")),
+                "fuente": texto(fila.get("fuente")),
+                "observaciones": texto(fila.get("observaciones")),
+            }
+        )
+
+    if salario <= 0 and detalle:
+        advertencias.append("Indique un salario base mayor que cero para calcular las multas.")
+    if not conversion_valida and detalle:
+        advertencias.append(
+            "Indique cuántos CRC equivalen a una unidad de la moneda del resultado para sumar las multas al total final."
+        )
+    if not detalle:
+        conversion_valida = True
+        total_moneda = {escenario: 0.0 for escenario in ESCENARIOS}
+    else:
+        total_moneda = (
+            {escenario: total_crc[escenario] / tipo_cambio for escenario in ESCENARIOS}
+            if conversion_valida
+            else None
+        )
+    return {
+        "salario_base_crc": salario,
+        "crc_por_unidad_moneda": tipo_cambio,
+        "conversion_valida": conversion_valida,
+        "total_crc": total_crc,
+        "total_moneda": total_moneda,
+        "detalle": detalle,
+        "advertencias": sorted(set(advertencias)),
+    }
+
+
 def _filas_no_vacias(filas: Iterable[dict[str, Any]], campos: tuple[str, ...]) -> list[dict[str, Any]]:
     return [fila for fila in filas if any(texto(fila.get(c)) for c in campos)]
 
