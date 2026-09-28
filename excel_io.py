@@ -18,6 +18,9 @@ HOJA_VALORES = "VALORES_ESVD"
 HOJA_CONFIG = "CONFIGURACION"
 HOJA_ESPECIES = "ESPECIES_REFERENCIA"
 HOJA_COSTOS = "COSTOS_REFERENCIA"
+HOJA_CASOS = "CASOS_VDEP"
+HOJA_RECEPTORES = "RECEPTORES_VDEP"
+HOJA_VARIABLES = "VARIABLES_VDEP"
 
 
 def _abrir(origen: str | Path | bytes | BinaryIO):
@@ -40,7 +43,15 @@ def _leer_tabla(ws, encabezado_fila: int, clave: str) -> list[dict[str, Any]]:
 
 def cargar_libro_referencia(
     origen: str | Path | bytes | BinaryIO,
-) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[
+    dict[str, Any],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
     libro = _abrir(origen)
     if HOJA_CONFIG not in libro.sheetnames or HOJA_VALORES not in libro.sheetnames:
         raise ValueError("El archivo debe contener las hojas CONFIGURACION y VALORES_ESVD.")
@@ -55,8 +66,11 @@ def cargar_libro_referencia(
     parametros = [normalizar_valores_esvd(fila) for fila in _leer_tabla(libro[HOJA_VALORES], 5, "ID_PARAMETRO")]
     especies = _leer_tabla(libro[HOJA_ESPECIES], 5, "ID_REFERENCIA") if HOJA_ESPECIES in libro.sheetnames else []
     costos = _leer_tabla(libro[HOJA_COSTOS], 5, "ID_REFERENCIA") if HOJA_COSTOS in libro.sheetnames else []
+    casos = _leer_tabla(libro[HOJA_CASOS], 5, "ID_CASO") if HOJA_CASOS in libro.sheetnames else []
+    receptores = _leer_tabla(libro[HOJA_RECEPTORES], 5, "ID_CASO") if HOJA_RECEPTORES in libro.sheetnames else []
+    variables = _leer_tabla(libro[HOJA_VARIABLES], 5, "ID_CASO") if HOJA_VARIABLES in libro.sheetnames else []
     libro.close()
-    return config, parametros, especies, costos
+    return config, parametros, especies, costos, casos, receptores, variables
 
 
 def seleccionar_filas_demo(
@@ -92,7 +106,7 @@ def fila_servicio_desde_parametro(parametro: dict[str, Any]) -> dict[str, Any]:
         "recuperacion_bajo": int(numero(parametro.get("RECUPERACION_BAJA_DEMO"), 1)),
         "recuperacion_central": int(numero(parametro.get("RECUPERACION_CENTRAL_DEMO"), 1)),
         "recuperacion_alto": int(numero(parametro.get("RECUPERACION_ALTA_DEMO"), 1)),
-        "perfil_recuperacion": "Lineal",
+        "perfil_recuperacion": texto(parametro.get("PERFIL_RECUPERACION_DEMO")) or "Lineal",
         "evidencia": "B",
         "evidencia_parametro": texto(parametro.get("NIVEL_EVIDENCIA")),
         "comparabilidad": texto(parametro.get("COMPARABILIDAD")) or "Media",
@@ -114,6 +128,7 @@ def fila_costo_desde_referencia(referencia: dict[str, Any]) -> dict[str, Any]:
         "id_referencia": texto(referencia.get("ID_REFERENCIA")),
         "cuenta": texto(referencia.get("CUENTA")) or "E",
         "concepto": texto(referencia.get("CONCEPTO")),
+        "base_calculo": texto(referencia.get("BASE_CALCULO")),
         "unidad": texto(referencia.get("UNIDAD")),
         "anio_desde_evento": int(numero(referencia.get("ANIO_DESDE_EVENTO"), 0)),
         "cantidad_bajo": numero(referencia.get("CANTIDAD_BAJA_DEMO"), 1.0),
@@ -131,13 +146,29 @@ def fila_costo_desde_referencia(referencia: dict[str, Any]) -> dict[str, Any]:
         "estadistico": texto(referencia.get("ESTADISTICO")),
         "periodo_referencia": texto(referencia.get("PERIODO_REFERENCIA")),
         "grupo_doble_conteo": texto(referencia.get("GRUPO_DOBLE_CONTEO")),
+        "notas": texto(referencia.get("NOTAS")),
+    }
+
+
+def fila_receptor_desde_caso(referencia: dict[str, Any]) -> dict[str, Any]:
+    """Convierte un receptor aplicado en una fila del inventario no monetario."""
+    return {
+        "id_referencia": f"{texto(referencia.get('ID_CASO'))}-{int(numero(referencia.get('ORDEN'), 1))}",
+        "especie_grupo": texto(referencia.get("ESPECIE_GRUPO")),
+        "cantidad": numero(referencia.get("CANTIDAD")),
+        "tipo_afectacion": texto(referencia.get("TIPO_AFECTACION")),
+        "funcion_ecologica": texto(referencia.get("FUNCION_ECOLOGICA")),
+        "nexo_causal": texto(referencia.get("NEXO_CAUSAL")) or "Sí",
+        "evidencia": texto(referencia.get("NIVEL_EVIDENCIA")) or "B",
+        "fuente_expediente": texto(referencia.get("FUENTE_CITA")),
+        "notas": f"Unidad: {texto(referencia.get('UNIDAD'))}. {texto(referencia.get('NOTAS'))}".strip(),
     }
 
 
 def filas_especie_desde_referencia(
     referencia: dict[str, Any], cantidad: float,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Crea el registro biológico y su línea monetaria ficticia A1 o A2."""
+    """Crea el registro biológico y la línea monetaria de referencia asociada."""
     cantidad = max(0.0, numero(cantidad))
     registro = {
         "id_referencia": texto(referencia.get("ID_REFERENCIA")),
@@ -154,6 +185,7 @@ def filas_especie_desde_referencia(
         "id_referencia": texto(referencia.get("ID_REFERENCIA")),
         "cuenta": texto(referencia.get("CUENTA")) or "A1",
         "concepto": f"{texto(referencia.get('ESPECIE_GRUPO'))}: {texto(referencia.get('TIPO_AFECTACION'))}",
+        "base_calculo": f"{cantidad:g} × valor unitario de referencia",
         "unidad": texto(referencia.get("UNIDAD")),
         "anio_desde_evento": 0,
         "cantidad_bajo": cantidad,
@@ -171,6 +203,7 @@ def filas_especie_desde_referencia(
         "estadistico": texto(referencia.get("ESTADISTICO")),
         "periodo_referencia": texto(referencia.get("PERIODO_REFERENCIA")),
         "grupo_doble_conteo": texto(referencia.get("GRUPO_DOBLE_CONTEO")),
+        "notas": texto(referencia.get("NOTAS")),
     }
     return registro, costo
 
@@ -204,6 +237,7 @@ def crear_reporte_xlsx(
     vida_silvestre: list[dict[str, Any]],
     servicios: list[dict[str, Any]],
     costos: list[dict[str, Any]],
+    variables_biofisicas: list[dict[str, Any]] | None = None,
 ) -> bytes:
     wb = Workbook()
     ws = wb.active
@@ -225,6 +259,7 @@ def crear_reporte_xlsx(
         ws.append([cuenta, nombres[cuenta], *(valores[e] for e in ESCENARIOS), tratamiento])
     if caso.get("permitir_agregacion"):
         ws.append(["SUBTOTAL", f"Subtotal de daños ({moneda})", *(resultado["subtotal_danos"][e] for e in ESCENARIOS), "Agregación autorizada"])
+        ws.append(["TOTAL VDEP", f"Total compatible VDEP, incluido R ({moneda})", *(resultado["total_compatible"][e] for e in ESCENARIOS), "Mostrar solo tras revisar compatibilidad"])
     else:
         ws.append(["SUBTOTAL", "No mostrado: falta autorización de agregación", "", "", "", "Revise doble conteo"])
     ws.append(["EXPLORATORIO", "Total de líneas exploratorias", *(resultado["total_exploratorio"][e] for e in ESCENARIOS), "No integrar al escenario central"])
@@ -240,6 +275,7 @@ def crear_reporte_xlsx(
         ("VIDA_SILVESTRE", vida_silvestre),
         ("SERVICIOS_ENTRADA", servicios),
         ("COSTOS_ENTRADA", costos),
+        ("VARIABLES_BIOFISICAS", variables_biofisicas or []),
     ]
     for nombre, filas in hojas:
         tab = wb.create_sheet(nombre)
@@ -263,7 +299,7 @@ def crear_reporte_xlsx(
     for clave, valor in caso.items():
         meta.append([clave, _limpiar(valor)])
     meta.append(["fecha_exportacion", datetime.now().isoformat(timespec="seconds")])
-    meta.append(["nota", "Valoración para efectos procesales. Requiere revisión ecológica, económica y jurídica."])
+    meta.append(["nota", "VDEP para uso durante un expediente abierto. Requiere revisión ecológica, económica y jurídica."])
     _ajustar_hoja(meta)
 
     salida = BytesIO()

@@ -9,65 +9,96 @@ from excel_io import (
     cargar_libro_referencia,
     crear_reporte_xlsx,
     fila_costo_desde_referencia,
-    fila_servicio_desde_parametro,
-    filas_especie_desde_referencia,
-    seleccionar_filas_demo,
+    fila_receptor_desde_caso,
 )
 
 
-class ReferenciasDemoTest(unittest.TestCase):
+class ReferenciasVdepTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         libro = Path(__file__).resolve().parents[1] / "data" / "Plantilla_Calculadora_ESVD_ES.xlsx"
-        cls.config, cls.parametros, cls.especies, cls.costos = cargar_libro_referencia(libro)
+        (
+            cls.config,
+            cls.parametros,
+            cls.especies,
+            cls.costos,
+            cls.casos,
+            cls.receptores,
+            cls.variables,
+        ) = cargar_libro_referencia(libro)
 
-    def test_catalogos_ficticios_basados_en_ejemplos_metodologicos(self):
-        self.assertEqual(len(self.parametros), 8)
-        self.assertEqual(len(self.especies), 8)
-        self.assertEqual(len(self.costos), 12)
-        self.assertTrue(all(str(p["ID_PARAMETRO"]).startswith("ESVD-DEMO-") for p in self.parametros))
-        self.assertEqual(self.config["demo_id_caso"], "DEMO-VEP-PERICOS-01")
-        self.assertTrue(any("pericos" in str(e["ESPECIE_GRUPO"]).lower() for e in self.especies))
+    def calcular_caso(self, id_caso):
+        costos = [
+            fila_costo_desde_referencia(c)
+            for c in self.costos
+            if c["ID_CASO"] == id_caso
+        ]
+        return calcular_modelo([], costos, self.config), costos
 
-    def test_caso_demo_pericos_respeta_cuentas_y_rango_metodologico(self):
-        parametros_demo, parametros_configurados = seleccionar_filas_demo(self.parametros)
-        especies_demo, especies_configuradas = seleccionar_filas_demo(self.especies)
-        costos_demo, costos_configurados = seleccionar_filas_demo(self.costos)
-        self.assertTrue(parametros_configurados)
-        self.assertTrue(especies_configuradas)
-        self.assertTrue(costos_configurados)
-        self.assertEqual(parametros_demo, [])  # El ejemplo 1 no activa la Cuenta B.
-        self.assertEqual(len(especies_demo), 1)
-        self.assertEqual(len(costos_demo), 5)
+    def test_libro_contiene_nueve_casos_aplicados(self):
+        self.assertEqual(self.config["tipo_valoracion"], "VDEP")
+        self.assertEqual(self.config["moneda_modelo"], "CRC")
+        self.assertEqual(len(self.casos), 9)
+        self.assertEqual(len(self.receptores), 11)
+        self.assertEqual(len(self.variables), 49)
+        self.assertEqual(len(self.costos), 32)
+        self.assertEqual(len(self.parametros), 4)
+        self.assertTrue(all(str(c["ID_CASO"]).startswith("VDEP-EJ") for c in self.casos))
 
-        vida, costo_a1 = filas_especie_desde_referencia(
-            especies_demo[0], especies_demo[0]["CANTIDAD_CASO_DEMO"]
-        )
-        self.assertEqual(vida["cantidad"], 2)
-        servicios = []
-        costos = [costo_a1, *(fila_costo_desde_referencia(c) for c in costos_demo)]
+    def test_los_nueve_totales_reproducen_el_anexo(self):
+        esperados = {
+            "VDEP-EJ01": (400000, 470000, 580000),
+            "VDEP-EJ02": (31040000, 36501000, 41758000),
+            "VDEP-EJ03": (9520000, 12120000, 15845000),
+            "VDEP-EJ04": (5200000, 7100000, 9200000),
+            "VDEP-EJ05": (8970000, 10650000, 12750000),
+            "VDEP-EJ06": (2950000, 3500000, 4050000),
+            "VDEP-EJ07": (6075000, 8450000, 11025000),
+            "VDEP-EJ08": (3750000, 4550000, 5350000),
+            "VDEP-EJ09": (12580000, 15200000, 18470000),
+        }
+        for id_caso, esperado in esperados.items():
+            with self.subTest(id_caso=id_caso):
+                resultado, _ = self.calcular_caso(id_caso)
+                obtenido = tuple(resultado["total_compatible"][e] for e in ("bajo", "central", "alto"))
+                self.assertEqual(obtenido, esperado)
+                caso = next(c for c in self.casos if c["ID_CASO"] == id_caso)
+                publicado = (caso["TOTAL_BAJO"], caso["TOTAL_CENTRAL"], caso["TOTAL_ALTO"])
+                self.assertEqual(obtenido, publicado)
 
-        resultado = calcular_modelo(servicios, costos, self.config)
-        self.assertEqual(resultado["principal_por_cuenta"]["A1"]["central"], 0)
-        self.assertEqual(resultado["principal_por_cuenta"]["B"]["central"], 0)
-        self.assertEqual(resultado["principal_por_cuenta"]["C"], {"bajo": 120, "central": 180, "alto": 260})
-        self.assertEqual(resultado["principal_por_cuenta"]["D"], {"bajo": 250, "central": 350, "alto": 520})
-        self.assertEqual(resultado["subtotal_danos"], {"bajo": 370, "central": 530, "alto": 780})
-        self.assertAlmostEqual(resultado["reparacion"]["central"], 140 / 1.03)
-        self.assertEqual(next(c for c in costos_demo if c["ID_REFERENCIA"] == "CST-DEMO-VEP01-D02")["N_CASOS"], 42)
+    def test_ejemplo_uno_conserva_r_separada_y_total_compatible(self):
+        resultado, costos = self.calcular_caso("VDEP-EJ01")
+        self.assertEqual(resultado["principal_por_cuenta"]["C"], {"bajo": 210000, "central": 210000, "alto": 210000})
+        self.assertEqual(resultado["principal_por_cuenta"]["D"], {"bajo": 100000, "central": 140000, "alto": 210000})
+        self.assertEqual(resultado["reparacion"], {"bajo": 90000, "central": 120000, "alto": 160000})
+        self.assertEqual(resultado["subtotal_danos"], {"bajo": 310000, "central": 350000, "alto": 420000})
+        self.assertEqual(resultado["total_compatible"], {"bajo": 400000, "central": 470000, "alto": 580000})
+        d = next(c for c in costos if c["id_referencia"] == "VDEP-EJ01-D01")
+        self.assertEqual(d["n_referencia"], "42")
 
+    def test_receptores_y_reporte_exportable(self):
+        receptores = [
+            fila_receptor_desde_caso(r)
+            for r in self.receptores
+            if r["ID_CASO"] == "VDEP-EJ09"
+        ]
+        self.assertEqual(len(receptores), 2)
+        self.assertEqual(receptores[1]["cantidad"], 0.6)
+        resultado, costos = self.calcular_caso("VDEP-EJ09")
+        variables = [v for v in self.variables if v["ID_CASO"] == "VDEP-EJ09"]
         reporte = crear_reporte_xlsx(
-            {"moneda": "USD", "permitir_agregacion": True, "tipo_valoracion": "VEP"},
+            {"moneda": "CRC", "permitir_agregacion": True, "tipo_valoracion": "VDEP"},
             resultado,
-            [vida],
-            servicios,
+            receptores,
+            [],
             costos,
+            variables,
         )
         libro = load_workbook(BytesIO(reporte), read_only=True, data_only=False)
         self.assertIn("RESUMEN", libro.sheetnames)
-        self.assertIn("METADATOS", libro.sheetnames)
-        self.assertEqual(libro["RESUMEN"]["A2"].value, "A1")
-        self.assertEqual(libro["RESUMEN"]["A3"].value, "A2")
+        self.assertIn("VARIABLES_BIOFISICAS", libro.sheetnames)
+        valores_columna_a = [libro["RESUMEN"].cell(r, 1).value for r in range(1, libro["RESUMEN"].max_row + 1)]
+        self.assertIn("TOTAL VDEP", valores_columna_a)
         libro.close()
 
 

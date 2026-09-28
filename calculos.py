@@ -1,4 +1,4 @@
-"""Motor de cálculo para la valoración para efectos procesales (VEP).
+"""Motor de cálculo para la valoración del daño para efectos procesales (VDEP).
 
 El módulo no depende de Streamlit. Esto permite probar la matemática de forma
 aislada y reutilizarla en otras interfaces.
@@ -220,6 +220,10 @@ def calcular_modelo(
         escenario: sum(principal[c][escenario] for c in CUENTAS_DANOS)
         for escenario in ESCENARIOS
     }
+    total_compatible = {
+        escenario: subtotal_danos[escenario] + principal["R"][escenario]
+        for escenario in ESCENARIOS
+    }
     total_exploratorio = {
         escenario: sum(exploratorio[c][escenario] for c in CUENTAS_VALIDAS)
         for escenario in ESCENARIOS
@@ -279,6 +283,7 @@ def calcular_modelo(
         "principal_por_cuenta": principal,
         "exploratorio_por_cuenta": exploratorio,
         "subtotal_danos": subtotal_danos,
+        "total_compatible": total_compatible,
         "reparacion": principal["R"],
         "por_estado_dato": por_estado_dato,
         "total_exploratorio": total_exploratorio,

@@ -11,6 +11,7 @@ from excel_io import (
     cargar_libro_referencia,
     crear_reporte_xlsx,
     fila_costo_desde_referencia,
+    fila_receptor_desde_caso,
     fila_servicio_desde_parametro,
     filas_especie_desde_referencia,
     seleccionar_filas_demo,
@@ -21,7 +22,7 @@ BASE_DIR = Path(__file__).resolve().parent
 LIBRO_PREDETERMINADO = BASE_DIR / "data" / "Plantilla_Calculadora_ESVD_ES.xlsx"
 
 st.set_page_config(
-    page_title="Calculadora procesal VEP",
+    page_title="Calculadora procesal VDEP",
     page_icon="🌿",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -38,7 +39,7 @@ st.markdown(
       .small-note {color:#5F6B73; font-size:.9rem;}
     </style>
     <div class="esvd-hero">
-      <h1>Calculadora para efectos procesales</h1>
+      <h1>Calculadora VDEP</h1>
       <p>Estimación durante un expediente abierto con datos observados, referencias históricas y rangos visibles.</p>
     </div>
     """,
@@ -94,6 +95,7 @@ def fila_costo_vacia() -> dict:
         "id_referencia": "",
         "cuenta": "A1",
         "concepto": "",
+        "base_calculo": "",
         "unidad": "",
         "anio_desde_evento": 0,
         "cantidad_bajo": 1.0,
@@ -111,6 +113,7 @@ def fila_costo_vacia() -> dict:
         "estadistico": "",
         "periodo_referencia": "",
         "grupo_doble_conteo": "",
+        "notas": "",
     }
 
 
@@ -128,6 +131,8 @@ def inicializar_estado():
         st.session_state.servicios_df = pd.DataFrame([fila_servicio_vacia()])
     if "costos_df" not in st.session_state:
         st.session_state.costos_df = pd.DataFrame([fila_costo_vacia()])
+    if "variables_df" not in st.session_state:
+        st.session_state.variables_df = pd.DataFrame()
     st.session_state.setdefault("nombre_caso", "")
     st.session_state.setdefault("autoridad", "")
     st.session_state.setdefault("ubicacion", "")
@@ -137,7 +142,7 @@ def inicializar_estado():
     st.session_state.setdefault("linea_base", "")
     st.session_state.setdefault("cambio_biofisico", "")
     st.session_state.setdefault("consecuencia", "")
-    st.session_state.setdefault("version_valoracion", "VEP-1")
+    st.session_state.setdefault("version_valoracion", "VDEP-1")
     st.session_state.setdefault("responsable", "")
     st.session_state.setdefault("gravedad_factores", [])
     st.session_state.setdefault("gravedad_notas", "")
@@ -146,6 +151,13 @@ def inicializar_estado():
     st.session_state.setdefault("revision_doble", False)
     st.session_state.setdefault("permitir_agregacion_ui", False)
     st.session_state.setdefault("demostracion_activa", False)
+    st.session_state.setdefault("caso_aplicado_id", "")
+    st.session_state.setdefault("caso_aplicado_fuente", "")
+    st.session_state.setdefault("control_doble_caso", "")
+    st.session_state.setdefault("cambio_vdtc_caso", "")
+    st.session_state.setdefault("totales_publicados", {})
+    st.session_state.setdefault("moneda_modelo_ui", "")
+    st.session_state.setdefault("anio_base_ui", 0)
 
 
 def agregar_fila(clave: str, fila: dict, campos_contenido: tuple[str, ...]) -> None:
@@ -188,7 +200,7 @@ def cargar_caso_demostrativo(config_excel, parametros, especies, costos) -> None
         pd.DataFrame(servicios_demo) if servicios_demo else pd.DataFrame([fila_servicio_vacia()])
     )
     st.session_state.costos_df = pd.DataFrame(costos_especies + costos_demo)
-    st.session_state.nombre_caso = texto(config_excel.get("demo_id_caso")) or "DEMO-VEP-001"
+    st.session_state.nombre_caso = texto(config_excel.get("demo_id_caso")) or "DEMO-VDEP-001"
     st.session_state.autoridad = texto(config_excel.get("demo_autoridad")) or "Autoridad ficticia"
     st.session_state.ubicacion = texto(config_excel.get("demo_ubicacion")) or "Sitio ficticio"
     st.session_state.conducta = texto(config_excel.get("demo_conducta")) or "Transporte y decomiso"
@@ -197,7 +209,7 @@ def cargar_caso_demostrativo(config_excel, parametros, especies, costos) -> None
     st.session_state.linea_base = texto(config_excel.get("demo_linea_base"))
     st.session_state.cambio_biofisico = texto(config_excel.get("demo_cambio_biofisico"))
     st.session_state.consecuencia = texto(config_excel.get("demo_consecuencia"))
-    st.session_state.version_valoracion = texto(config_excel.get("demo_version_valoracion")) or "VEP-1"
+    st.session_state.version_valoracion = texto(config_excel.get("demo_version_valoracion")) or "VDEP-1"
     st.session_state.responsable = texto(config_excel.get("demo_responsable")) or "Equipo de demostración"
     factores = texto(config_excel.get("demo_gravedad_factores"))
     st.session_state.gravedad_factores = [f.strip() for f in factores.split("|") if f.strip()]
@@ -212,6 +224,69 @@ def cargar_caso_demostrativo(config_excel, parametros, especies, costos) -> None
     st.session_state.editor_version += 1
 
 
+def cargar_caso_aplicado(
+    id_caso: str,
+    casos: list[dict],
+    receptores: list[dict],
+    costos: list[dict],
+    variables: list[dict],
+) -> None:
+    caso = next(c for c in casos if texto(c.get("ID_CASO")) == id_caso)
+    receptores_caso = sorted(
+        [r for r in receptores if texto(r.get("ID_CASO")) == id_caso],
+        key=lambda r: numero(r.get("ORDEN"), 9999),
+    )
+    costos_caso = sorted(
+        [c for c in costos if texto(c.get("ID_CASO")) == id_caso],
+        key=lambda c: numero(c.get("ORDEN_EN_CASO"), 9999),
+    )
+    variables_caso = sorted(
+        [v for v in variables if texto(v.get("ID_CASO")) == id_caso],
+        key=lambda v: numero(v.get("ORDEN"), 9999),
+    )
+    st.session_state.vida_df = pd.DataFrame(
+        [fila_receptor_desde_caso(r) for r in receptores_caso]
+    )
+    st.session_state.servicios_df = pd.DataFrame([fila_servicio_vacia()])
+    st.session_state.costos_df = pd.DataFrame(
+        [fila_costo_desde_referencia(c) for c in costos_caso]
+    )
+    st.session_state.variables_df = pd.DataFrame(variables_caso)
+    st.session_state.nombre_caso = texto(caso.get("ID_CASO"))
+    st.session_state.autoridad = texto(caso.get("AUTORIDAD"))
+    st.session_state.ubicacion = texto(caso.get("UBICACION"))
+    st.session_state.conducta = texto(caso.get("CONDUCTA_EVENTO"))
+    st.session_state.hecho_probado = texto(caso.get("HECHO_PROBADO"))
+    st.session_state.receptor_principal = texto(caso.get("RECEPTOR_PRINCIPAL"))
+    st.session_state.linea_base = texto(caso.get("LINEA_BASE"))
+    st.session_state.cambio_biofisico = texto(caso.get("CAMBIO_BIOFISICO"))
+    st.session_state.consecuencia = texto(caso.get("CONSECUENCIA"))
+    st.session_state.version_valoracion = "VDEP-1"
+    st.session_state.responsable = "Equipo de prueba VDEP"
+    factores = texto(caso.get("GRAVEDAD_FACTORES"))
+    st.session_state.gravedad_factores = [f.strip() for f in factores.split("|") if f.strip()]
+    st.session_state.gravedad_notas = texto(caso.get("GRAVEDAD_NOTAS"))
+    st.session_state.revision_causal = True
+    st.session_state.revision_incertidumbre = True
+    st.session_state.revision_doble = True
+    st.session_state.permitir_agregacion_ui = texto(caso.get("PERMITIR_AGREGACION")).lower() in {
+        "sí", "si", "s", "true", "1", "yes"
+    }
+    st.session_state.demostracion_activa = True
+    st.session_state.caso_aplicado_id = id_caso
+    st.session_state.caso_aplicado_fuente = texto(caso.get("FUENTE_CITA"))
+    st.session_state.control_doble_caso = texto(caso.get("CONTROL_DOBLE_CONTEO"))
+    st.session_state.cambio_vdtc_caso = texto(caso.get("QUE_CAMBIA_VDTC"))
+    st.session_state.totales_publicados = {
+        "bajo": numero(caso.get("TOTAL_BAJO")),
+        "central": numero(caso.get("TOTAL_CENTRAL")),
+        "alto": numero(caso.get("TOTAL_ALTO")),
+    }
+    st.session_state.moneda_modelo_ui = texto(caso.get("MONEDA")) or "CRC"
+    st.session_state.anio_base_ui = int(numero(caso.get("ANIO_BASE"), 2026))
+    st.session_state.editor_version += 1
+
+
 def limpiar_caso() -> None:
     st.session_state.vida_df = pd.DataFrame(
         columns=[
@@ -221,6 +296,7 @@ def limpiar_caso() -> None:
     )
     st.session_state.servicios_df = pd.DataFrame([fila_servicio_vacia()])
     st.session_state.costos_df = pd.DataFrame([fila_costo_vacia()])
+    st.session_state.variables_df = pd.DataFrame()
     st.session_state.nombre_caso = ""
     st.session_state.autoridad = ""
     st.session_state.ubicacion = ""
@@ -230,7 +306,7 @@ def limpiar_caso() -> None:
     st.session_state.linea_base = ""
     st.session_state.cambio_biofisico = ""
     st.session_state.consecuencia = ""
-    st.session_state.version_valoracion = "VEP-1"
+    st.session_state.version_valoracion = "VDEP-1"
     st.session_state.responsable = ""
     st.session_state.gravedad_factores = []
     st.session_state.gravedad_notas = ""
@@ -239,6 +315,11 @@ def limpiar_caso() -> None:
     st.session_state.revision_doble = False
     st.session_state.permitir_agregacion_ui = False
     st.session_state.demostracion_activa = False
+    st.session_state.caso_aplicado_id = ""
+    st.session_state.caso_aplicado_fuente = ""
+    st.session_state.control_doble_caso = ""
+    st.session_state.cambio_vdtc_caso = ""
+    st.session_state.totales_publicados = {}
     st.session_state.editor_version += 1
 
 
@@ -257,16 +338,25 @@ with st.sidebar:
     )
     try:
         contenido_libro = archivo.getvalue() if archivo else LIBRO_PREDETERMINADO.read_bytes()
-        config_excel, parametros, especies_referencia, costos_referencia = leer_referencia(contenido_libro)
+        (
+            config_excel,
+            parametros,
+            especies_referencia,
+            costos_referencia,
+            casos_vdep,
+            receptores_vdep,
+            variables_vdep,
+        ) = leer_referencia(contenido_libro)
         st.success(
             "Libro válido: "
             f"{len(especies_referencia)} especie(s), {len(parametros)} servicio(s) y "
-            f"{len(costos_referencia)} costo(s) de referencia."
+            f"{len(costos_referencia)} componente(s); {len(casos_vdep)} caso(s) aplicado(s)."
         )
     except Exception as exc:
         st.error(f"No se pudo leer el libro: {exc}")
         config_excel, parametros, especies_referencia, costos_referencia = {}, [], [], []
-    modo_demostracion = bool(texto(config_excel.get("demo_id_caso"))) or any(
+        casos_vdep, receptores_vdep, variables_vdep = [], [], []
+    modo_demostracion = bool(casos_vdep) or bool(texto(config_excel.get("demo_id_caso"))) or any(
         "INCLUIR_CASO_DEMO" in fila
         for fila in [*parametros, *especies_referencia, *costos_referencia]
     )
@@ -276,26 +366,50 @@ with st.sidebar:
             "La aplicación recalcula los valores normalizados y no depende de fórmulas guardadas por Excel."
         )
     st.divider()
-    st.subheader("Demostración")
-    st.caption(
-        "Carga el caso ficticio de dos pericos en rehabilitación, adaptado del ejemplo metodológico VEP."
-    )
-    if st.button(
-        "Cargar caso demostrativo de pericos",
-        use_container_width=True,
-        disabled=not (modo_demostracion and (parametros or especies_referencia or costos_referencia)),
-    ):
-        cargar_caso_demostrativo(config_excel, parametros, especies_referencia, costos_referencia)
-        st.rerun()
+    st.subheader("Ejemplos aplicados")
+    if casos_vdep:
+        opciones_caso = {
+            f"Ejemplo {int(numero(c.get('NUMERO_EJEMPLO')))} — {texto(c.get('NOMBRE_CASO'))}": texto(c.get("ID_CASO"))
+            for c in casos_vdep
+        }
+        seleccion_caso = st.selectbox(
+            "Caso del Producto 2.1.2",
+            list(opciones_caso),
+            index=0,
+        )
+        st.caption("Carga receptores, variables biofísicas, componentes monetarios y notas del caso seleccionado.")
+        if st.button("Cargar ejemplo aplicado", use_container_width=True):
+            cargar_caso_aplicado(
+                opciones_caso[seleccion_caso],
+                casos_vdep,
+                receptores_vdep,
+                costos_referencia,
+                variables_vdep,
+            )
+            st.rerun()
+    else:
+        st.caption("Este libro no contiene la tabla CASOS_VDEP.")
+        if st.button(
+            "Cargar caso demostrativo anterior",
+            use_container_width=True,
+            disabled=not (modo_demostracion and (parametros or especies_referencia or costos_referencia)),
+        ):
+            cargar_caso_demostrativo(config_excel, parametros, especies_referencia, costos_referencia)
+            st.rerun()
     if st.button("Limpiar caso", use_container_width=True):
         limpiar_caso()
         st.rerun()
 
 if modo_demostracion:
     st.warning(
-        "VERSIÓN DE DEMOSTRACIÓN. Las especies, montos, ecosistemas, servicios, costos y fuentes del libro son ficticios. "
-        "Úselos únicamente para probar el funcionamiento."
+        "DATOS DIDÁCTICOS. El Producto 2.1.2 indica que todos los hechos, montos, tamaños de muestra y parámetros de sus ejemplos son ficticios. "
+        "Sirven para probar el instrumento y no son tarifas oficiales."
     )
+
+if not texto(st.session_state.moneda_modelo_ui):
+    st.session_state.moneda_modelo_ui = texto(config_excel.get("moneda_modelo")) or "CRC"
+if not st.session_state.anio_base_ui:
+    st.session_state.anio_base_ui = int(numero(config_excel.get("anio_base"), 2026))
 
 
 tab_caso, tab_vida, tab_servicios, tab_costos, tab_gravedad, tab_resultados = st.tabs(
@@ -305,14 +419,14 @@ tab_caso, tab_vida, tab_servicios, tab_costos, tab_gravedad, tab_resultados = st
         "3. Servicios",
         "4. Costos y reparación",
         "5. Gravedad y revisión",
-        "6. Resultado VEP",
+        "6. Resultado VDEP",
     ]
 )
 
 with tab_caso:
     st.subheader("Identifique el expediente")
     st.info(
-        "Esta aplicación produce una valoración para efectos procesales (VEP). Puede usar datos del expediente "
+        "Esta aplicación produce una valoración del daño para efectos procesales (VDEP). Puede usar datos del expediente "
         "y referencias históricas mientras el caso, el rescate o la restauración siguen abiertos."
     )
     c1, c2, c3 = st.columns(3)
@@ -327,11 +441,11 @@ with tab_caso:
             placeholder="Extracción, transporte, tenencia, comercio u otro",
             key="conducta",
         )
-        moneda_modelo = st.text_input("Moneda del resultado", value=texto(config_excel.get("moneda_modelo")) or "USD")
+        moneda_modelo = st.text_input("Moneda del resultado", key="moneda_modelo_ui")
     with c3:
         version_valoracion = st.text_input("Versión de la valoración", key="version_valoracion")
         responsable = st.text_input("Persona o equipo responsable", key="responsable")
-        anio_base = st.number_input("Año base de precios", min_value=1990, max_value=2100, value=int(numero(config_excel.get("anio_base"), 2026)))
+        anio_base = st.number_input("Año base de precios", min_value=1990, max_value=2100, key="anio_base_ui")
         permitir_agregacion = st.checkbox(
             "Autorizar subtotal A1+A2+B+C+D+E",
             key="permitir_agregacion_ui",
@@ -403,13 +517,13 @@ with tab_vida:
             "Especie y tipo de afectación",
             list(opciones_especie),
             index=None,
-            placeholder="Seleccione una especie ficticia",
+            placeholder="Seleccione una especie o receptor de referencia",
         )
         if seleccion_especie:
             e = opciones_especie[seleccion_especie]
             st.caption(
                 f"Autocompletará Cuenta {texto(e.get('CUENTA')) or 'A1'}: "
-                f"USD {numero(e.get('VALOR_BAJO_USD')):,.2f} / "
+                f"{moneda_modelo} {numero(e.get('VALOR_BAJO_USD')):,.2f} / "
                 f"{numero(e.get('VALOR_CENTRAL_USD')):,.2f} / "
                 f"{numero(e.get('VALOR_ALTO_USD')):,.2f} por {texto(e.get('UNIDAD'))}."
             )
@@ -421,7 +535,7 @@ with tab_vida:
             agregar_fila("costos_df", costo, ("concepto",))
             st.session_state.demostracion_activa = st.session_state.demostracion_activa or texto(
                 opciones_especie[seleccion_especie].get("ID_REFERENCIA")
-            ).startswith("ESP-DEMO-")
+            ).startswith(("ESP-DEMO-", "ESP-VDEP-"))
             st.session_state.editor_version += 1
             st.rerun()
     else:
@@ -444,12 +558,15 @@ with tab_vida:
         },
         key=f"editor_vida_{st.session_state.editor_version}",
     )
+    if not st.session_state.variables_df.empty:
+        with st.expander("Variables biofísicas y no monetarias del ejemplo cargado", expanded=True):
+            st.dataframe(st.session_state.variables_df, use_container_width=True, hide_index=True)
 
 with tab_servicios:
     st.subheader("Pérdida de servicios ecosistémicos (Cuenta B)")
     st.write(
         "Seleccione un parámetro del Excel. La aplicación autocompleta el rango unitario y, en esta versión de demostración, "
-        "también carga cantidades, pérdida y recuperación ficticias que puede modificar."
+        "también carga cantidades, pérdida y recuperación didácticas que puede modificar."
     )
     if parametros:
         ecosistemas = sorted({texto(p.get("ECOSISTEMA")) for p in parametros if texto(p.get("ECOSISTEMA"))})
@@ -467,7 +584,7 @@ with tab_servicios:
             p = opciones[seleccion]
             st.caption(
                 "Autocompletará: "
-                f"USD {numero(p.get('VALOR_BAJO_NORMALIZADO')):,.2f} / "
+                f"{moneda_modelo} {numero(p.get('VALOR_BAJO_NORMALIZADO')):,.2f} / "
                 f"{numero(p.get('VALOR_CENTRAL_NORMALIZADO')):,.2f} / "
                 f"{numero(p.get('VALOR_ALTO_NORMALIZADO')):,.2f} por {texto(p.get('UNIDAD_BASE'))}."
             )
@@ -479,7 +596,7 @@ with tab_servicios:
             )
             st.session_state.demostracion_activa = st.session_state.demostracion_activa or texto(
                 opciones[seleccion].get("ID_PARAMETRO")
-            ).startswith("ESVD-DEMO-")
+            ).startswith(("ESVD-DEMO-", "VDEP-"))
             st.session_state.editor_version += 1
             st.rerun()
     else:
@@ -535,7 +652,7 @@ with tab_costos:
         "La cuenta R se informa separada del subtotal de daños."
     )
     if costos_referencia:
-        cuentas_disponibles = [c for c in ["A1", "A2", "C", "D", "E", "R"] if any(texto(x.get("CUENTA")) == c for x in costos_referencia)]
+        cuentas_disponibles = [c for c in ["A1", "A2", "B", "C", "D", "E", "R"] if any(texto(x.get("CUENTA")) == c for x in costos_referencia)]
         filtro_cuenta = st.selectbox("Cuenta del costo", ["Todas", *cuentas_disponibles], key="filtro_cuenta_costo")
         costos_filtrados = [
             c for c in costos_referencia
@@ -549,13 +666,13 @@ with tab_costos:
             "Acción, costo o efecto",
             list(opciones_costo),
             index=None,
-            placeholder="Seleccione un costo ficticio",
+            placeholder="Seleccione un componente de referencia",
         )
         if seleccion_costo:
             c = opciones_costo[seleccion_costo]
             st.caption(
                 "Autocompletará: "
-                f"USD {numero(c.get('COSTO_UNITARIO_BAJO_USD')):,.2f} / "
+                f"{moneda_modelo} {numero(c.get('COSTO_UNITARIO_BAJO_USD')):,.2f} / "
                 f"{numero(c.get('COSTO_UNITARIO_CENTRAL_USD')):,.2f} / "
                 f"{numero(c.get('COSTO_UNITARIO_ALTO_USD')):,.2f} por {texto(c.get('UNIDAD'))}."
             )
@@ -567,7 +684,7 @@ with tab_costos:
             )
             st.session_state.demostracion_activa = st.session_state.demostracion_activa or texto(
                 opciones_costo[seleccion_costo].get("ID_REFERENCIA")
-            ).startswith("CST-DEMO-")
+            ).startswith(("CST-DEMO-", "VDEP-"))
             st.session_state.editor_version += 1
             st.rerun()
     else:
@@ -579,8 +696,9 @@ with tab_costos:
         hide_index=True,
         column_config={
             "id_referencia": st.column_config.TextColumn("ID referencia", disabled=True),
-            "cuenta": st.column_config.SelectboxColumn("Cuenta", options=["A1", "A2", "C", "D", "E", "R"], required=True),
+            "cuenta": st.column_config.SelectboxColumn("Cuenta", options=["A1", "A2", "B", "C", "D", "E", "R"], required=True),
             "concepto": st.column_config.TextColumn("Concepto", required=True),
+            "base_calculo": st.column_config.TextColumn("Base de cálculo"),
             "unidad": st.column_config.TextColumn("Unidad"),
             "anio_desde_evento": st.column_config.NumberColumn("Año desde el evento", min_value=0, step=1),
             "cantidad_bajo": st.column_config.NumberColumn("Cantidad baja", min_value=0.0),
@@ -601,6 +719,7 @@ with tab_costos:
             "estadistico": st.column_config.TextColumn("Estadístico"),
             "periodo_referencia": st.column_config.TextColumn("Periodo de la referencia"),
             "grupo_doble_conteo": st.column_config.TextColumn("Grupo de doble conteo"),
+            "notas": st.column_config.TextColumn("Notas"),
         },
         key=f"editor_costos_{st.session_state.editor_version}",
     )
@@ -653,7 +772,7 @@ config_calculo = {
 resultado = calcular_modelo(registros(st.session_state.servicios_df), registros(st.session_state.costos_df), config_calculo)
 caso = {
     "nombre_caso": nombre_caso,
-    "tipo_valoracion": "VEP - valoración para efectos procesales",
+    "tipo_valoracion": "VDEP - valoración del daño para efectos procesales",
     "autoridad": autoridad,
     "ubicacion": ubicacion,
     "fecha_evento": fecha_evento.isoformat(),
@@ -673,13 +792,17 @@ caso = {
     "moneda": moneda_modelo,
     "anio_base": anio_base,
     "permitir_agregacion": permitir_agregacion,
+    "caso_aplicado_id": st.session_state.caso_aplicado_id,
+    "fuente_caso_aplicado": st.session_state.caso_aplicado_fuente,
+    "control_doble_conteo_caso": st.session_state.control_doble_caso,
+    "sustituciones_vdtc": st.session_state.cambio_vdtc_caso,
     **config_calculo,
 }
 
 with tab_resultados:
-    st.subheader("Resultado para efectos procesales")
+    st.subheader("Resultado VDEP")
     if st.session_state.demostracion_activa:
-        st.warning("Resultado de demostración calculado con datos ficticios. No tiene validez técnica, económica ni jurídica.")
+        st.warning("Resultado didáctico del Producto 2.1.2. No constituye tarifa oficial ni sustituye la validación técnica del expediente.")
     st.caption(
         "El rango combina datos observados con estimaciones históricas o transferidas. Cada línea conserva su fuente, evidencia y estado."
     )
@@ -703,7 +826,7 @@ with tab_resultados:
             partes.append("Faltan confirmaciones de revisión en la pestaña 5")
         st.warning("Resultado incompleto para revisión procesal. " + ". ".join(partes) + ".")
     else:
-        st.success("El registro mínimo VEP está completo. Revise las advertencias antes de usar el resultado.")
+        st.success("El registro mínimo VDEP está completo. Revise las advertencias antes de usar el resultado.")
     resumen = []
     nombres = {
         "A1": "Pérdida biofísica o poblacional",
@@ -718,9 +841,15 @@ with tab_resultados:
 
     m1, m2, m3 = st.columns(3)
     if permitir_agregacion:
-        m1.metric("Subtotal de daños - Bajo", moneda(resultado["subtotal_danos"]["bajo"], moneda_modelo))
-        m2.metric("Subtotal de daños - Central", moneda(resultado["subtotal_danos"]["central"], moneda_modelo))
-        m3.metric("Subtotal de daños - Alto", moneda(resultado["subtotal_danos"]["alto"], moneda_modelo))
+        m1.metric("Total compatible VDEP - Bajo", moneda(resultado["total_compatible"]["bajo"], moneda_modelo))
+        m2.metric("Total compatible VDEP - Central", moneda(resultado["total_compatible"]["central"], moneda_modelo))
+        m3.metric("Total compatible VDEP - Alto", moneda(resultado["total_compatible"]["alto"], moneda_modelo))
+        st.caption(
+            "Total compatible = subtotal A1+A2+B+C+D+E + R, únicamente después de revisar compatibilidad y doble conteo. "
+            f"Subtotal de daños sin R: {moneda(resultado['subtotal_danos']['bajo'], moneda_modelo)} / "
+            f"{moneda(resultado['subtotal_danos']['central'], moneda_modelo)} / "
+            f"{moneda(resultado['subtotal_danos']['alto'], moneda_modelo)}."
+        )
     else:
         st.info("El subtotal combinado no se muestra porque la agregación no está autorizada. Revise primero los grupos de doble conteo.")
     st.dataframe(
@@ -747,8 +876,31 @@ with tab_resultados:
     with c4:
         st.metric("Componentes estimados", moneda(resultado["por_estado_dato"]["Estimado"]["central"], moneda_modelo))
     st.caption(
-        "R se presenta separada. Las líneas exploratorias no entran al subtotal principal. G se conserva como información no monetaria."
+        "R se muestra separada y solo entra al total compatible tras la revisión. Las líneas exploratorias no se suman. G permanece no monetaria."
     )
+
+    if st.session_state.caso_aplicado_id:
+        st.markdown("**Comprobación con el anexo**")
+        publicados = st.session_state.totales_publicados
+        coincide = all(
+            abs(resultado["total_compatible"][e] - numero(publicados.get(e))) < 0.01
+            for e in ESCENARIOS
+        )
+        st.write(
+            f"Publicado: {moneda(numero(publicados.get('bajo')), moneda_modelo)} / "
+            f"{moneda(numero(publicados.get('central')), moneda_modelo)} / "
+            f"{moneda(numero(publicados.get('alto')), moneda_modelo)}."
+        )
+        if coincide:
+            st.success("El cálculo reproduce exactamente el rango del ejemplo seleccionado.")
+        else:
+            st.warning("El caso fue editado y ya no coincide con el rango publicado en el anexo.")
+        if st.session_state.control_doble_caso:
+            st.info("Control de doble conteo: " + st.session_state.control_doble_caso)
+        if st.session_state.cambio_vdtc_caso:
+            st.info("Para una VDTC: " + st.session_state.cambio_vdtc_caso)
+        if st.session_state.caso_aplicado_fuente:
+            st.caption("Fuente: " + st.session_state.caso_aplicado_fuente)
 
     if gravedad_factores or gravedad_notas:
         st.markdown("**Capa G de gravedad y equidad**")
@@ -774,16 +926,27 @@ with tab_resultados:
         registros(st.session_state.vida_df),
         registros(st.session_state.servicios_df),
         registros(st.session_state.costos_df),
+        registros(st.session_state.variables_df),
     )
     paquete_json = json.dumps(
-        {"caso": caso, "resultado": resultado}, ensure_ascii=False, indent=2, default=str
+        {
+            "caso": caso,
+            "vida_silvestre": registros(st.session_state.vida_df),
+            "variables_biofisicas": registros(st.session_state.variables_df),
+            "servicios": registros(st.session_state.servicios_df),
+            "costos": registros(st.session_state.costos_df),
+            "resultado": resultado,
+        },
+        ensure_ascii=False,
+        indent=2,
+        default=str,
     ).encode("utf-8")
     d1, d2 = st.columns(2)
-    d1.download_button("Descargar informe Excel", reporte, "resultado_calculadora_esvd.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-    d2.download_button("Descargar datos JSON", paquete_json, "resultado_calculadora_esvd.json", "application/json", use_container_width=True)
+    d1.download_button("Descargar informe Excel", reporte, "resultado_calculadora_vdep.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+    d2.download_button("Descargar datos JSON", paquete_json, "resultado_calculadora_vdep.json", "application/json", use_container_width=True)
 
 st.divider()
 st.markdown(
-    '<p class="small-note">Herramienta VEP de apoyo durante un expediente abierto. No sustituye peritaje ecológico o económico, revisión jurídica ni validación de las fuentes.</p>',
+    '<p class="small-note">Herramienta VDEP de apoyo durante un expediente abierto. No sustituye peritaje ecológico o económico, revisión jurídica ni validación de las fuentes.</p>',
     unsafe_allow_html=True,
 )
