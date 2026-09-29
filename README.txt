@@ -1,19 +1,14 @@
-Parche gráfico para la aplicación Streamlit VDEP
+CORRECCIÓN DIRECTA DEL PIE DE PÁGINA VDEP
 
-1. Copie la carpeta assets y logo_header_snippet.py al mismo directorio de app.py.
-2. Importe las dos funciones:
+1. Extraiga este ZIP.
+2. En el repositorio de GitHub, reemplace el archivo app.py de la raíz por el
+   app.py incluido aquí.
+3. Copie o reemplace también la carpeta assets, conservando exactamente ese
+   nombre y ubicación.
+4. Haga commit de los cambios y espere la actualización de Streamlit.
 
-   from logo_header_snippet import render_institutional_header, render_eco_eje_footer
+No es necesario agregar logo_header_snippet.py.
 
-3. Ejecute render_institutional_header() inmediatamente después de st.set_page_config(...).
-4. Ejecute render_eco_eje_footer() como la última instrucción visual de app.py,
-   después de todas las secciones, pestañas y resultados del calculador.
-5. Confirme visualmente en Streamlit y haga commit/push al repositorio que alimenta Community Cloud.
-
-La cabecera presenta los logotipos institucionales en una tarjeta blanca
-centrada, de menor tamaño y adaptable a pantallas pequeñas. El logotipo de
-ECO-EJE se presenta centrado al final de la página, separado del contenido por
-una línea discreta.
-
-Este parche modifica únicamente la presentación visual; no altera cálculos,
-datos ni metodología.
+Esta versión mantiene los logotipos gubernamentales en la cabecera y coloca el
+logotipo de ECO-EJE al final real de la página, después de todas las secciones,
+resultados y la nota de cierre.

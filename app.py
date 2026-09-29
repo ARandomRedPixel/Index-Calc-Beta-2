@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -24,26 +25,103 @@ ASSETS_DIR = BASE_DIR / "assets"
 LIBRO_PREDETERMINADO = BASE_DIR / "data" / "Plantilla_Calculadora_ESVD_ES.xlsx"
 
 
-def render_institutional_header() -> None:
-    """Muestra los logotipos institucionales incluidos con la aplicación."""
-    logo_eco_eje = ASSETS_DIR / "eco_eje_logo.png"
-    logos_institucionales = ASSETS_DIR / "institutional_logos.png"
+def png_data_uri(ruta: Path) -> str:
+    """Convierte un PNG local en una imagen incrustada para controlar su diseño."""
+    contenido = base64.b64encode(ruta.read_bytes()).decode("ascii")
+    return f"data:image/png;base64,{contenido}"
 
-    if logo_eco_eje.exists():
-        izquierda, centro, derecha = st.columns([1, 2.4, 1])
-        with centro:
-            st.image(str(logo_eco_eje), width=150)
+
+def render_institutional_header() -> None:
+    """Muestra el título y los logotipos gubernamentales en la cabecera."""
+    logos_institucionales = ASSETS_DIR / "institutional_logos.png"
+    imagen = png_data_uri(logos_institucionales) if logos_institucionales.exists() else ""
+
+    tarjeta = ""
+    if imagen:
+        tarjeta = f"""
+            <div class="vdep-government-card">
+                <img src="{imagen}" alt="Logos de las instituciones participantes" />
+            </div>
+        """
 
     st.markdown(
-        "<h2 style='text-align:center; margin:.2rem 0 .7rem;'>"
-        "Valoración del daño ambiental por pérdida de biodiversidad "
-        "ocasionada por el tráfico de vida silvestre"
-        "</h2>",
+        f"""
+        <style>
+            .vdep-institutional-header {{
+                width: 100%;
+                text-align: center;
+                margin: 0 auto 1.1rem auto;
+            }}
+            .vdep-institutional-title {{
+                text-align: center;
+                margin: 0.2rem auto 0.9rem auto;
+                max-width: 980px;
+                line-height: 1.22;
+            }}
+            .vdep-government-card {{
+                display: inline-flex;
+                justify-content: center;
+                align-items: center;
+                width: min(560px, calc(100% - 2rem));
+                box-sizing: border-box;
+                margin: 0 auto;
+                padding: 10px 16px;
+                background: #ffffff;
+                border: 1px solid rgba(15, 45, 70, 0.14);
+                border-radius: 10px;
+                box-shadow: 0 2px 8px rgba(15, 45, 70, 0.08);
+            }}
+            .vdep-government-card img {{
+                display: block;
+                width: 100%;
+                height: auto;
+                margin: 0 auto;
+            }}
+        </style>
+        <div class="vdep-institutional-header">
+            <h2 class="vdep-institutional-title">
+                Valoración del daño ambiental por pérdida de biodiversidad
+                ocasionada por el tráfico de vida silvestre
+            </h2>
+            {tarjeta}
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
-    if logos_institucionales.exists():
-        st.image(str(logos_institucionales), use_container_width=True)
+
+def render_eco_eje_footer() -> None:
+    """Muestra ECO-EJE al final real de la página."""
+    logo_eco_eje = ASSETS_DIR / "eco_eje_logo.png"
+    if not logo_eco_eje.exists():
+        return
+
+    imagen = png_data_uri(logo_eco_eje)
+    st.markdown(
+        f"""
+        <style>
+            .vdep-eco-footer {{
+                width: 100%;
+                box-sizing: border-box;
+                margin: 2.75rem auto 0 auto;
+                padding: 1.15rem 0 0.4rem 0;
+                text-align: center;
+                border-top: 1px solid rgba(15, 45, 70, 0.14);
+            }}
+            .vdep-eco-footer img {{
+                display: block;
+                width: 160px;
+                max-width: 46vw;
+                height: auto;
+                margin: 0 auto;
+            }}
+        </style>
+        <div class="vdep-eco-footer">
+            <img src="{imagen}" alt="ECO-EJE" />
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 st.set_page_config(
     page_title="Calculadora procesal VDEP",
@@ -1148,3 +1226,4 @@ st.markdown(
     '<p class="small-note">Herramienta VDEP de apoyo durante un expediente abierto. No sustituye peritaje ecológico o económico, revisión jurídica ni validación de las fuentes.</p>',
     unsafe_allow_html=True,
 )
+render_eco_eje_footer()
