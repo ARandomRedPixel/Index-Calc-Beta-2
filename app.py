@@ -44,12 +44,14 @@ def render_institutional_header() -> None:
     )
     html = (
         "<style>"
-        ".vdep-institutional-header{width:100%;text-align:center;"
-        "margin:0 auto 1.1rem auto;}"
-        ".vdep-institutional-title{text-align:center;margin:.2rem auto .9rem auto;"
-        "max-width:980px;line-height:1.22;}"
-        ".vdep-government-card{display:inline-flex;justify-content:center;"
-        "align-items:center;width:min(560px,calc(100% - 2rem));box-sizing:border-box;"
+        ".vdep-institutional-header{width:100%;max-width:1200px;text-align:center;"
+        "margin:0 auto 1.25rem auto;padding:1rem 1rem 0;box-sizing:border-box;"
+        "overflow:visible;}"
+        ".vdep-institutional-title{display:block;width:100%;text-align:center;"
+        "margin:0 auto 1rem auto;padding:.3rem 0;max-width:1040px;"
+        "font-size:clamp(1.55rem,3vw,2.1rem);line-height:1.3;overflow:visible;}"
+        ".vdep-government-card{display:flex;justify-content:center;"
+        "align-items:center;width:100%;max-width:560px;box-sizing:border-box;"
         "margin:0 auto;padding:10px 16px;background:#fff;"
         "border:1px solid rgba(15,45,70,.14);border-radius:10px;"
         "box-shadow:0 2px 8px rgba(15,45,70,.08);}"
@@ -111,7 +113,7 @@ render_institutional_header()
 st.markdown(
     """
     <style>
-      .block-container {padding-top: 1.7rem; padding-bottom: 3rem;}
+      .block-container {padding-top: 3.4rem !important; padding-bottom: 3rem;}
       .esvd-hero {background: linear-gradient(120deg,#143A52,#147D80); color:white;
                   padding:1.2rem 1.5rem; border-radius:14px; margin-bottom:1rem;}
       .esvd-hero h1 {margin:0; font-size:2rem;}
@@ -250,6 +252,11 @@ def agregar_fila(clave: str, fila: dict, campos_contenido: tuple[str, ...]) -> N
     primera_vacia = df.empty or (
         len(df) == 1 and not any(texto(df.iloc[0].get(c)) for c in campos_contenido)
     )
+    st.session_state[clave] = (
+        pd.DataFrame([fila])
+        if primera_vacia
+        else pd.concat([df, pd.DataFrame([fila])], ignore_index=True)
+    )
 
 
 def reiniciar_multas() -> None:
@@ -261,9 +268,6 @@ def reiniciar_multas() -> None:
         multas["observaciones"] = ""
         st.session_state.multas_df = multas
     st.session_state.revision_multas = False
-    st.session_state[clave] = (
-        pd.DataFrame([fila]) if primera_vacia else pd.concat([df, pd.DataFrame([fila])], ignore_index=True)
-    )
 
 
 def cargar_caso_demostrativo(config_excel, parametros, especies, costos) -> None:

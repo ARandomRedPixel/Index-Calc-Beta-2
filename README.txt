@@ -13,4 +13,5 @@ Esta versión mantiene los logotipos gubernamentales en la cabecera y coloca el
 logotipo de ECO-EJE al final real de la página, después de todas las secciones,
 resultados y la nota de cierre. También corrige la visualización del logotipo
 gubernamental para que no aparezca como texto Base64 y aumenta el tamaño de
-ECO-EJE.
+ECO-EJE. Además, corrige el recorte y centrado de la cabecera y el error
+NameError que se producía al cargar un caso de ejemplo.
