@@ -74,3 +74,7 @@ Los manuales están separados por herramienta:
 - `docs/Manual_VTC_Excel_Despues_del_Hecho.docx`: uso de la plantilla Excel después del hecho.
 
 La valoración técnicamente completa posterior se trabaja en `docs/Plantilla_VTC_Valoracion_Despues_del_Hecho.xlsx`.
+
+## Identidad visual
+
+La carpeta `assets` contiene el logotipo de ECO-EJE y la franja de logotipos institucionales que aparecen en la cabecera. Debe conservarse junto a `app.py` al subir o actualizar el proyecto en GitHub.

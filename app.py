@@ -20,7 +20,30 @@ from excel_io import (
 
 
 BASE_DIR = Path(__file__).resolve().parent
+ASSETS_DIR = BASE_DIR / "assets"
 LIBRO_PREDETERMINADO = BASE_DIR / "data" / "Plantilla_Calculadora_ESVD_ES.xlsx"
+
+
+def render_institutional_header() -> None:
+    """Muestra los logotipos institucionales incluidos con la aplicación."""
+    logo_eco_eje = ASSETS_DIR / "eco_eje_logo.png"
+    logos_institucionales = ASSETS_DIR / "institutional_logos.png"
+
+    if logo_eco_eje.exists():
+        izquierda, centro, derecha = st.columns([1, 2.4, 1])
+        with centro:
+            st.image(str(logo_eco_eje), width=150)
+
+    st.markdown(
+        "<h2 style='text-align:center; margin:.2rem 0 .7rem;'>"
+        "Valoración del daño ambiental por pérdida de biodiversidad "
+        "ocasionada por el tráfico de vida silvestre"
+        "</h2>",
+        unsafe_allow_html=True,
+    )
+
+    if logos_institucionales.exists():
+        st.image(str(logos_institucionales), use_container_width=True)
 
 st.set_page_config(
     page_title="Calculadora procesal VDEP",
@@ -28,6 +51,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+render_institutional_header()
 
 st.markdown(
     """
