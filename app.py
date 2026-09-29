@@ -36,58 +36,34 @@ def render_institutional_header() -> None:
     logos_institucionales = ASSETS_DIR / "institutional_logos.png"
     imagen = png_data_uri(logos_institucionales) if logos_institucionales.exists() else ""
 
-    tarjeta = ""
-    if imagen:
-        tarjeta = f"""
-            <div class="vdep-government-card">
-                <img src="{imagen}" alt="Logos de las instituciones participantes" />
-            </div>
-        """
-
-    st.markdown(
-        f"""
-        <style>
-            .vdep-institutional-header {{
-                width: 100%;
-                text-align: center;
-                margin: 0 auto 1.1rem auto;
-            }}
-            .vdep-institutional-title {{
-                text-align: center;
-                margin: 0.2rem auto 0.9rem auto;
-                max-width: 980px;
-                line-height: 1.22;
-            }}
-            .vdep-government-card {{
-                display: inline-flex;
-                justify-content: center;
-                align-items: center;
-                width: min(560px, calc(100% - 2rem));
-                box-sizing: border-box;
-                margin: 0 auto;
-                padding: 10px 16px;
-                background: #ffffff;
-                border: 1px solid rgba(15, 45, 70, 0.14);
-                border-radius: 10px;
-                box-shadow: 0 2px 8px rgba(15, 45, 70, 0.08);
-            }}
-            .vdep-government-card img {{
-                display: block;
-                width: 100%;
-                height: auto;
-                margin: 0 auto;
-            }}
-        </style>
-        <div class="vdep-institutional-header">
-            <h2 class="vdep-institutional-title">
-                Valoración del daño ambiental por pérdida de biodiversidad
-                ocasionada por el tráfico de vida silvestre
-            </h2>
-            {tarjeta}
-        </div>
-        """,
-        unsafe_allow_html=True,
+    tarjeta = (
+        f'<div class="vdep-government-card"><img src="{imagen}" '
+        'alt="Logos de las instituciones participantes" /></div>'
+        if imagen
+        else ""
     )
+    html = (
+        "<style>"
+        ".vdep-institutional-header{width:100%;text-align:center;"
+        "margin:0 auto 1.1rem auto;}"
+        ".vdep-institutional-title{text-align:center;margin:.2rem auto .9rem auto;"
+        "max-width:980px;line-height:1.22;}"
+        ".vdep-government-card{display:inline-flex;justify-content:center;"
+        "align-items:center;width:min(560px,calc(100% - 2rem));box-sizing:border-box;"
+        "margin:0 auto;padding:10px 16px;background:#fff;"
+        "border:1px solid rgba(15,45,70,.14);border-radius:10px;"
+        "box-shadow:0 2px 8px rgba(15,45,70,.08);}"
+        ".vdep-government-card img{display:block;width:100%;height:auto;margin:0 auto;}"
+        "</style>"
+        '<div class="vdep-institutional-header">'
+        '<h2 class="vdep-institutional-title">'
+        "Valoración del daño ambiental por pérdida de biodiversidad "
+        "ocasionada por el tráfico de vida silvestre"
+        "</h2>"
+        f"{tarjeta}"
+        "</div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def render_eco_eje_footer() -> None:
@@ -110,8 +86,8 @@ def render_eco_eje_footer() -> None:
             }}
             .vdep-eco-footer img {{
                 display: block;
-                width: 160px;
-                max-width: 46vw;
+                width: 220px;
+                max-width: 58vw;
                 height: auto;
                 margin: 0 auto;
             }}

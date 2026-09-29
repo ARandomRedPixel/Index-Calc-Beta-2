@@ -11,4 +11,6 @@ No es necesario agregar logo_header_snippet.py.
 
 Esta versión mantiene los logotipos gubernamentales en la cabecera y coloca el
 logotipo de ECO-EJE al final real de la página, después de todas las secciones,
-resultados y la nota de cierre.
+resultados y la nota de cierre. También corrige la visualización del logotipo
+gubernamental para que no aparezca como texto Base64 y aumenta el tamaño de
+ECO-EJE.
